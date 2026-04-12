@@ -373,8 +373,8 @@
         const cursiveFont = getCursiveFont(mode, guidance);
         fontFamily = `'${cursiveFont}', cursive`;
         features = 'font-feature-settings: "calt" 1;';
-        // Cursive dotted/arrow fonts render their own visual style,
-        // so use full-opacity color
+        // Cursive trace uses dotted font variant for visual style,
+        // so render at full opacity instead of gray
         if (mode === 'trace') color = '#000';
       } else {
         fontFamily = "Arial, Helvetica, sans-serif";
