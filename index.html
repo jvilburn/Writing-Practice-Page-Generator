@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Handwriting Worksheet Generator</title>
+  <style>
+    /* Font Faces */
+    @font-face {
+      font-family: 'FRBCursive';
+      src: url('fonts/FRBAmericanCursive-400-Regular.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'FRBCursiveDotted';
+      src: url('fonts/FRBAmericanCursive-400-Dotted.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'FRBCursiveArrow';
+      src: url('fonts/FRBAmericanCursive-400-ArrowPath.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'FRBCursiveGuideDotted';
+      src: url('fonts/FRBAmericanCursive-400-GuidelinesArrowsDottedRegular.woff2') format('woff2');
+      font-weight: normal;
+      font-style: normal;
+    }
+
+    /* Reset & Base */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      color: #333;
+      background: #e8e8e8;
+    }
+
+    /* App Layout */
+    #app {
+      display: flex;
+      height: 100vh;
+    }
+
+    /* Controls Panel */
+    #controls {
+      width: 280px;
+      min-width: 280px;
+      background: #fff;
+      border-right: 1px solid #ccc;
+      padding: 16px;
+      overflow-y: auto;
+    }
+
+    /* Preview Container */
+    #preview-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: auto;
+    }
+
+    /* Preview Page */
+    #preview {
+      background: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      position: relative;
+      overflow: hidden;
+    }
+    #preview.landscape {
+      width: 11in;
+      height: 8.5in;
+    }
+    #preview.portrait {
+      width: 8.5in;
+      height: 11in;
+    }
+
+    /* Print Styles */
+    @media print {
+      #controls {
+        display: none !important;
+      }
+      #preview-container {
+        padding: 0;
+        display: block;
+      }
+      #preview {
+        width: 100% !important;
+        height: 100% !important;
+        box-shadow: none;
+        border: none;
+        margin: 0;
+      }
+      body {
+        background: white;
+      }
+    }
+  </style>
+  <style id="page-orientation">
+    @page {
+      size: landscape letter;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside id="controls">
+      <h2 style="margin-bottom: 16px;">Worksheet Settings</h2>
+      <!-- Controls will be added in Task 3 -->
+    </aside>
+    <main id="preview-container">
+      <div id="preview" class="landscape">
+        <!-- Live preview renders here -->
+      </div>
+    </main>
+  </div>
+</body>
+</html>
