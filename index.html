@@ -786,15 +786,14 @@
       const mode = getVal('mode');
       const letterStyle = getVal('letterStyle');
       const fontSize = parseInt($('#fontSize').value);
-      // Writing area: top-line to baseline (matches font cap height)
-      const writingHeight = fontSize * 0.75;
+      // Writing area: top-line to baseline
+      const writingHeight = fontSize * 0.85;
       // Gap below baseline: descender space + inter-line spacing
-      const gap = fontSize * 0.55;
+      const gap = fontSize * 0.5;
       // Total height per line slot
       const totalLineHeight = writingHeight + gap;
-      // Midline marks x-height: (capHeight - xHeight) / capHeight
-      // Arial cap ≈ 0.72em, x-height ≈ 0.52em → ratio ≈ 0.28
-      const midRatio = 0.28;
+      // Midline at 50% — standard handwriting paper proportion
+      const midRatio = 0.5;
       const traceReps = parseInt($('#traceReps').value) || 4;
       const blankLines = parseInt($('#blankLines').value) || 3;
       const guidance = $('#strokeGuide').checked;
