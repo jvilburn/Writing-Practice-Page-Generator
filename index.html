@@ -358,15 +358,28 @@
       return group;
     }
 
-    function addTextToLine(group, text, fontSize, lineHeight, color, letterStyle) {
+    function getCursiveFont(mode, guidance) {
+      if (mode === 'trace') {
+        return guidance ? 'FRBCursiveGuideDotted' : 'FRBCursiveDotted';
+      }
+      return guidance ? 'FRBCursiveArrow' : 'FRBCursive';
+    }
+
+    function addTextToLine(group, text, fontSize, lineHeight, color, letterStyle, mode, guidance) {
       const span = document.createElement('span');
       span.textContent = text;
-      const fontFamily = (letterStyle === 'cursive')
-        ? "'FRBCursive', cursive"
-        : "Arial, Helvetica, sans-serif";
-      const features = (letterStyle === 'cursive')
-        ? 'font-feature-settings: "calt" 1;'
-        : '';
+      let fontFamily, features;
+      if (letterStyle === 'cursive') {
+        const cursiveFont = getCursiveFont(mode, guidance);
+        fontFamily = `'${cursiveFont}', cursive`;
+        features = 'font-feature-settings: "calt" 1;';
+        // Cursive dotted/arrow fonts render their own visual style,
+        // so use full-opacity color
+        if (mode === 'trace') color = '#000';
+      } else {
+        fontFamily = "Arial, Helvetica, sans-serif";
+        features = '';
+      }
       span.style.cssText = `
         position: absolute;
         bottom: 0;
@@ -393,6 +406,7 @@
       const midRatio = 0.42;
       const traceReps = parseInt($('#traceReps').value) || 4;
       const blankLines = parseInt($('#blankLines').value) || 3;
+      const guidance = $('#strokeGuide').checked;
 
       const availableHeight = preview.clientHeight - parseFloat(getComputedStyle(preview).paddingTop) * 2;
       const maxLines = Math.floor(availableHeight / lineHeight);
@@ -413,7 +427,7 @@
         for (const line of content) {
           for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, lineHeight, midRatio);
-            addTextToLine(group, line, fontSize, lineHeight, '#ccc', letterStyle);
+            addTextToLine(group, line, fontSize, lineHeight, '#ccc', letterStyle, mode, guidance);
             preview.appendChild(group);
             linesUsed++;
           }
@@ -429,7 +443,7 @@
           if (linesUsed >= maxLines) break;
           // Model line
           const modelGroup = createLineGroup(lineStyle, lineHeight, midRatio);
-          addTextToLine(modelGroup, line, fontSize, lineHeight, '#000', letterStyle);
+          addTextToLine(modelGroup, line, fontSize, lineHeight, '#000', letterStyle, mode, guidance);
           preview.appendChild(modelGroup);
           linesUsed++;
           // Blank practice lines
