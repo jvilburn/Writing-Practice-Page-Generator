@@ -358,6 +358,341 @@
       return group;
     }
 
+    // Zaner-Bloser print stroke data for all 52 letters
+    // Coordinates are relative: x in [0, width], y 0=top 1=baseline
+    // For uppercase, cap height is at y=0, baseline at y=1
+    // For lowercase, x-height at y=0.42 (midline), baseline at y=1, ascenders go to y=0, descenders to y=1.35
+    const STROKE_DATA = {
+      // UPPERCASE
+      'A': { w: 0.7, strokes: [
+        { d: 'M 0.35,0 L 0,1', start: [0.35, 0], angle: 110 },
+        { d: 'M 0.35,0 L 0.7,1', start: [0.35, 0], angle: 70 },
+        { d: 'M 0.12,0.6 L 0.58,0.6', start: [0.12, 0.6], angle: 0 },
+      ]},
+      'B': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,0 C 0.5,0 0.55,0.25 0.45,0.48 L 0.05,0.48', start: [0.05, 0], angle: 0 },
+        { d: 'M 0.05,0.48 C 0.55,0.48 0.6,0.75 0.45,1 L 0.05,1', start: [0.05, 0.48], angle: 0 },
+      ]},
+      'C': { w: 0.6, strokes: [
+        { d: 'M 0.55,0.15 C 0.4,0 0.1,0 0.05,0.5 C 0.05,0.85 0.25,1 0.55,0.88', start: [0.55, 0.15], angle: 200 },
+      ]},
+      'D': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,0 C 0.6,0 0.65,0.5 0.6,0.75 C 0.5,1 0.2,1 0.05,1', start: [0.05, 0], angle: 0 },
+      ]},
+      'E': { w: 0.55, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,0 L 0.5,0', start: [0.05, 0], angle: 0 },
+        { d: 'M 0.05,0.5 L 0.4,0.5', start: [0.05, 0.5], angle: 0 },
+        { d: 'M 0.05,1 L 0.5,1', start: [0.05, 1], angle: 0 },
+      ]},
+      'F': { w: 0.5, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,0 L 0.45,0', start: [0.05, 0], angle: 0 },
+        { d: 'M 0.05,0.5 L 0.35,0.5', start: [0.05, 0.5], angle: 0 },
+      ]},
+      'G': { w: 0.65, strokes: [
+        { d: 'M 0.55,0.15 C 0.4,0 0.1,0 0.05,0.5 C 0.05,0.85 0.25,1 0.55,0.88', start: [0.55, 0.15], angle: 200 },
+        { d: 'M 0.55,0.5 L 0.55,0.88', start: [0.55, 0.5], angle: 90 },
+      ]},
+      'H': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.55,0 L 0.55,1', start: [0.55, 0], angle: 90 },
+        { d: 'M 0.05,0.5 L 0.55,0.5', start: [0.05, 0.5], angle: 0 },
+      ]},
+      'I': { w: 0.3, strokes: [
+        { d: 'M 0.15,0 L 0.15,1', start: [0.15, 0], angle: 90 },
+        { d: 'M 0.02,0 L 0.28,0', start: [0.02, 0], angle: 0 },
+        { d: 'M 0.02,1 L 0.28,1', start: [0.02, 1], angle: 0 },
+      ]},
+      'J': { w: 0.45, strokes: [
+        { d: 'M 0.35,0 L 0.35,0.8 C 0.35,1 0.2,1.05 0.05,0.9', start: [0.35, 0], angle: 90 },
+      ]},
+      'K': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.5,0 L 0.05,0.5', start: [0.5, 0], angle: 135 },
+        { d: 'M 0.05,0.5 L 0.55,1', start: [0.05, 0.5], angle: 45 },
+      ]},
+      'L': { w: 0.5, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,1 L 0.45,1', start: [0.05, 1], angle: 0 },
+      ]},
+      'M': { w: 0.75, strokes: [
+        { d: 'M 0.05,1 L 0.05,0', start: [0.05, 1], angle: -90 },
+        { d: 'M 0.05,0 L 0.375,0.6', start: [0.05, 0], angle: 60 },
+        { d: 'M 0.375,0.6 L 0.7,0', start: [0.375, 0.6], angle: -60 },
+        { d: 'M 0.7,0 L 0.7,1', start: [0.7, 0], angle: 90 },
+      ]},
+      'N': { w: 0.6, strokes: [
+        { d: 'M 0.05,1 L 0.05,0', start: [0.05, 1], angle: -90 },
+        { d: 'M 0.05,0 L 0.55,1', start: [0.05, 0], angle: 60 },
+        { d: 'M 0.55,1 L 0.55,0', start: [0.55, 1], angle: -90 },
+      ]},
+      'O': { w: 0.65, strokes: [
+        { d: 'M 0.325,0 C 0.05,0 0.02,0.5 0.325,1 C 0.6,1 0.63,0.5 0.325,0', start: [0.325, 0], angle: 180 },
+      ]},
+      'P': { w: 0.55, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,0 C 0.5,0 0.55,0.25 0.45,0.5 L 0.05,0.5', start: [0.05, 0], angle: 0 },
+      ]},
+      'Q': { w: 0.65, strokes: [
+        { d: 'M 0.325,0 C 0.05,0 0.02,0.5 0.325,1 C 0.6,1 0.63,0.5 0.325,0', start: [0.325, 0], angle: 180 },
+        { d: 'M 0.4,0.75 L 0.6,1.05', start: [0.4, 0.75], angle: 35 },
+      ]},
+      'R': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.05,1', start: [0.05, 0], angle: 90 },
+        { d: 'M 0.05,0 C 0.5,0 0.55,0.25 0.45,0.5 L 0.05,0.5', start: [0.05, 0], angle: 0 },
+        { d: 'M 0.3,0.5 L 0.55,1', start: [0.3, 0.5], angle: 45 },
+      ]},
+      'S': { w: 0.55, strokes: [
+        { d: 'M 0.45,0.1 C 0.35,0 0.1,0 0.08,0.25 C 0.08,0.45 0.45,0.5 0.47,0.75 C 0.47,1 0.2,1.02 0.08,0.88', start: [0.45, 0.1], angle: 200 },
+      ]},
+      'T': { w: 0.6, strokes: [
+        { d: 'M 0.3,0 L 0.3,1', start: [0.3, 0], angle: 90 },
+        { d: 'M 0.02,0 L 0.58,0', start: [0.02, 0], angle: 0 },
+      ]},
+      'U': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.05,0.75 C 0.05,1 0.25,1.02 0.3,1 C 0.45,1 0.55,0.85 0.55,0.75 L 0.55,0', start: [0.05, 0], angle: 90 },
+      ]},
+      'V': { w: 0.65, strokes: [
+        { d: 'M 0.02,0 L 0.325,1', start: [0.02, 0], angle: 75 },
+        { d: 'M 0.63,0 L 0.325,1', start: [0.63, 0], angle: 105 },
+      ]},
+      'W': { w: 0.8, strokes: [
+        { d: 'M 0.02,0 L 0.2,1', start: [0.02, 0], angle: 80 },
+        { d: 'M 0.2,1 L 0.4,0.4', start: [0.2, 1], angle: -70 },
+        { d: 'M 0.4,0.4 L 0.6,1', start: [0.4, 0.4], angle: 70 },
+        { d: 'M 0.6,1 L 0.78,0', start: [0.6, 1], angle: -80 },
+      ]},
+      'X': { w: 0.6, strokes: [
+        { d: 'M 0.05,0 L 0.55,1', start: [0.05, 0], angle: 60 },
+        { d: 'M 0.55,0 L 0.05,1', start: [0.55, 0], angle: 120 },
+      ]},
+      'Y': { w: 0.6, strokes: [
+        { d: 'M 0.02,0 L 0.3,0.5', start: [0.02, 0], angle: 60 },
+        { d: 'M 0.58,0 L 0.3,0.5', start: [0.58, 0], angle: 120 },
+        { d: 'M 0.3,0.5 L 0.3,1', start: [0.3, 0.5], angle: 90 },
+      ]},
+      'Z': { w: 0.55, strokes: [
+        { d: 'M 0.05,0 L 0.5,0', start: [0.05, 0], angle: 0 },
+        { d: 'M 0.5,0 L 0.05,1', start: [0.5, 0], angle: 120 },
+        { d: 'M 0.05,1 L 0.5,1', start: [0.05, 1], angle: 0 },
+      ]},
+      // LOWERCASE
+      'a': { w: 0.5, strokes: [
+        { d: 'M 0.4,0.42 C 0.3,0.38 0.08,0.42 0.08,0.7 C 0.08,0.95 0.25,1 0.4,1', start: [0.4, 0.42], angle: 180 },
+        { d: 'M 0.4,0.42 L 0.4,1', start: [0.4, 0.42], angle: 90 },
+      ]},
+      'b': { w: 0.5, strokes: [
+        { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
+        { d: 'M 0.08,0.42 C 0.2,0.38 0.45,0.42 0.45,0.7 C 0.45,0.95 0.25,1 0.08,1', start: [0.08, 0.42], angle: 0 },
+      ]},
+      'c': { w: 0.45, strokes: [
+        { d: 'M 0.4,0.48 C 0.3,0.38 0.08,0.42 0.08,0.7 C 0.08,0.95 0.25,1 0.4,0.95', start: [0.4, 0.48], angle: 200 },
+      ]},
+      'd': { w: 0.5, strokes: [
+        { d: 'M 0.4,0.42 C 0.3,0.38 0.08,0.42 0.08,0.7 C 0.08,0.95 0.25,1 0.4,1', start: [0.4, 0.42], angle: 180 },
+        { d: 'M 0.4,0 L 0.4,1', start: [0.4, 0], angle: 90 },
+      ]},
+      'e': { w: 0.45, strokes: [
+        { d: 'M 0.08,0.68 L 0.4,0.68 C 0.4,0.42 0.08,0.38 0.08,0.7 C 0.08,0.95 0.25,1 0.4,0.95', start: [0.08, 0.68], angle: 0 },
+      ]},
+      'f': { w: 0.35, strokes: [
+        { d: 'M 0.3,0.1 C 0.25,0 0.1,0 0.12,0.15 L 0.12,1', start: [0.3, 0.1], angle: 200 },
+        { d: 'M 0.02,0.42 L 0.3,0.42', start: [0.02, 0.42], angle: 0 },
+      ]},
+      'g': { w: 0.5, strokes: [
+        { d: 'M 0.4,0.42 C 0.3,0.38 0.08,0.42 0.08,0.7 C 0.08,0.95 0.25,1 0.4,1', start: [0.4, 0.42], angle: 180 },
+        { d: 'M 0.4,0.42 L 0.4,1.2 C 0.4,1.35 0.2,1.38 0.08,1.3', start: [0.4, 0.42], angle: 90 },
+      ]},
+      'h': { w: 0.5, strokes: [
+        { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
+        { d: 'M 0.08,0.42 C 0.2,0.38 0.42,0.38 0.42,0.55 L 0.42,1', start: [0.08, 0.42], angle: 0 },
+      ]},
+      'i': { w: 0.25, strokes: [
+        { d: 'M 0.12,0.42 L 0.12,1', start: [0.12, 0.42], angle: 90 },
+        { d: 'M 0.12,0.22 L 0.12,0.25', start: [0.12, 0.22], angle: 90 },
+      ]},
+      'j': { w: 0.25, strokes: [
+        { d: 'M 0.15,0.42 L 0.15,1.2 C 0.15,1.35 0.02,1.38 -0.05,1.3', start: [0.15, 0.42], angle: 90 },
+        { d: 'M 0.15,0.22 L 0.15,0.25', start: [0.15, 0.22], angle: 90 },
+      ]},
+      'k': { w: 0.45, strokes: [
+        { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
+        { d: 'M 0.4,0.42 L 0.08,0.7', start: [0.4, 0.42], angle: 135 },
+        { d: 'M 0.08,0.7 L 0.42,1', start: [0.08, 0.7], angle: 40 },
+      ]},
+      'l': { w: 0.2, strokes: [
+        { d: 'M 0.1,0 L 0.1,1', start: [0.1, 0], angle: 90 },
+      ]},
+      'm': { w: 0.75, strokes: [
+        { d: 'M 0.05,0.42 L 0.05,1', start: [0.05, 0.42], angle: 90 },
+        { d: 'M 0.05,0.42 C 0.15,0.38 0.3,0.38 0.3,0.55 L 0.3,1', start: [0.05, 0.42], angle: 0 },
+        { d: 'M 0.3,0.42 C 0.4,0.38 0.55,0.38 0.55,0.55 L 0.55,1', start: [0.3, 0.42], angle: 0 },
+      ]},
+      'n': { w: 0.5, strokes: [
+        { d: 'M 0.08,0.42 L 0.08,1', start: [0.08, 0.42], angle: 90 },
+        { d: 'M 0.08,0.42 C 0.2,0.38 0.42,0.38 0.42,0.55 L 0.42,1', start: [0.08, 0.42], angle: 0 },
+      ]},
+      'o': { w: 0.5, strokes: [
+        { d: 'M 0.25,0.42 C 0.08,0.42 0.05,0.7 0.05,0.72 C 0.05,0.95 0.2,1 0.25,1 C 0.42,1 0.45,0.75 0.45,0.72 C 0.45,0.45 0.3,0.42 0.25,0.42', start: [0.25, 0.42], angle: 180 },
+      ]},
+      'p': { w: 0.5, strokes: [
+        { d: 'M 0.08,0.42 L 0.08,1.35', start: [0.08, 0.42], angle: 90 },
+        { d: 'M 0.08,0.42 C 0.2,0.38 0.45,0.42 0.45,0.7 C 0.45,0.95 0.25,1 0.08,1', start: [0.08, 0.42], angle: 0 },
+      ]},
+      'q': { w: 0.5, strokes: [
+        { d: 'M 0.4,0.42 C 0.3,0.38 0.08,0.42 0.08,0.7 C 0.08,0.95 0.25,1 0.4,1', start: [0.4, 0.42], angle: 180 },
+        { d: 'M 0.4,0.42 L 0.4,1.35', start: [0.4, 0.42], angle: 90 },
+      ]},
+      'r': { w: 0.35, strokes: [
+        { d: 'M 0.08,0.42 L 0.08,1', start: [0.08, 0.42], angle: 90 },
+        { d: 'M 0.08,0.55 C 0.15,0.42 0.25,0.38 0.32,0.42', start: [0.08, 0.55], angle: -30 },
+      ]},
+      's': { w: 0.4, strokes: [
+        { d: 'M 0.32,0.48 C 0.25,0.4 0.08,0.4 0.08,0.55 C 0.08,0.68 0.32,0.72 0.32,0.87 C 0.32,1.02 0.12,1.02 0.06,0.92', start: [0.32, 0.48], angle: 200 },
+      ]},
+      't': { w: 0.35, strokes: [
+        { d: 'M 0.15,0.15 L 0.15,0.85 C 0.15,1 0.25,1.02 0.32,0.95', start: [0.15, 0.15], angle: 90 },
+        { d: 'M 0.02,0.42 L 0.3,0.42', start: [0.02, 0.42], angle: 0 },
+      ]},
+      'u': { w: 0.5, strokes: [
+        { d: 'M 0.08,0.42 L 0.08,0.8 C 0.08,1 0.25,1.02 0.42,0.9', start: [0.08, 0.42], angle: 90 },
+        { d: 'M 0.42,0.42 L 0.42,1', start: [0.42, 0.42], angle: 90 },
+      ]},
+      'v': { w: 0.45, strokes: [
+        { d: 'M 0.02,0.42 L 0.225,1', start: [0.02, 0.42], angle: 75 },
+        { d: 'M 0.43,0.42 L 0.225,1', start: [0.43, 0.42], angle: 105 },
+      ]},
+      'w': { w: 0.65, strokes: [
+        { d: 'M 0.02,0.42 L 0.15,1', start: [0.02, 0.42], angle: 80 },
+        { d: 'M 0.15,1 L 0.3,0.55', start: [0.15, 1], angle: -70 },
+        { d: 'M 0.3,0.55 L 0.45,1', start: [0.3, 0.55], angle: 70 },
+        { d: 'M 0.45,1 L 0.58,0.42', start: [0.45, 1], angle: -80 },
+      ]},
+      'x': { w: 0.45, strokes: [
+        { d: 'M 0.05,0.42 L 0.4,1', start: [0.05, 0.42], angle: 60 },
+        { d: 'M 0.4,0.42 L 0.05,1', start: [0.4, 0.42], angle: 120 },
+      ]},
+      'y': { w: 0.45, strokes: [
+        { d: 'M 0.05,0.42 L 0.225,1', start: [0.05, 0.42], angle: 75 },
+        { d: 'M 0.4,0.42 L 0.15,1.2 C 0.1,1.35 0.02,1.35 -0.02,1.3', start: [0.4, 0.42], angle: 105 },
+      ]},
+      'z': { w: 0.4, strokes: [
+        { d: 'M 0.05,0.42 L 0.35,0.42', start: [0.05, 0.42], angle: 0 },
+        { d: 'M 0.35,0.42 L 0.05,1', start: [0.35, 0.42], angle: 120 },
+        { d: 'M 0.05,1 L 0.35,1', start: [0.05, 1], angle: 0 },
+      ]},
+    };
+
+    function renderStrokeGuidance(group, text, fontSize, lineHeight) {
+      // Measure character positions using a hidden canvas
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+
+      const scale = fontSize;
+      let xOffset = 0;
+
+      for (const char of text) {
+        const data = STROKE_DATA[char];
+        if (!data) {
+          // Space or unmapped character — just advance
+          xOffset += ctx.measureText(char).width;
+          continue;
+        }
+
+        const charWidth = ctx.measureText(char).width;
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('width', charWidth);
+        svg.setAttribute('height', lineHeight);
+        svg.style.cssText = `
+          position: absolute;
+          bottom: 0;
+          left: ${xOffset}px;
+          overflow: visible;
+          pointer-events: none;
+        `;
+
+        const scaleX = charWidth / data.w;
+        const scaleY = scale;
+
+        data.strokes.forEach((stroke, idx) => {
+          // Draw stroke path
+          const path = document.createElementNS(svgNS, 'path');
+          // Transform the path coordinates
+          const transformedD = transformPath(stroke.d, scaleX, scaleY, lineHeight);
+          path.setAttribute('d', transformedD);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#4a90d9');
+          path.setAttribute('stroke-width', '1.5');
+          path.setAttribute('stroke-dasharray', '4,3');
+          path.setAttribute('opacity', '0.8');
+          svg.appendChild(path);
+
+          // Draw numbered circle at start point
+          const cx = stroke.start[0] * scaleX;
+          const cy = lineHeight - (1 - stroke.start[1]) * scaleY;
+
+          const circle = document.createElementNS(svgNS, 'circle');
+          circle.setAttribute('cx', cx);
+          circle.setAttribute('cy', cy);
+          circle.setAttribute('r', Math.max(7, fontSize * 0.14));
+          circle.setAttribute('fill', '#e74c3c');
+          svg.appendChild(circle);
+
+          const numText = document.createElementNS(svgNS, 'text');
+          numText.setAttribute('x', cx);
+          numText.setAttribute('y', cy);
+          numText.setAttribute('text-anchor', 'middle');
+          numText.setAttribute('dominant-baseline', 'central');
+          numText.setAttribute('fill', '#fff');
+          numText.setAttribute('font-size', Math.max(9, fontSize * 0.18) + 'px');
+          numText.setAttribute('font-family', 'Arial, sans-serif');
+          numText.setAttribute('font-weight', 'bold');
+          numText.textContent = idx + 1;
+          svg.appendChild(numText);
+
+          // Draw direction arrow at start
+          const arrowLen = Math.max(10, fontSize * 0.2);
+          const rad = stroke.angle * Math.PI / 180;
+          const ax = cx + Math.cos(rad) * (Math.max(7, fontSize * 0.14) + arrowLen);
+          const ay = cy + Math.sin(rad) * (Math.max(7, fontSize * 0.14) + arrowLen);
+          const aHeadLen = arrowLen * 0.5;
+          const a1x = ax - Math.cos(rad - 0.4) * aHeadLen;
+          const a1y = ay - Math.sin(rad - 0.4) * aHeadLen;
+          const a2x = ax - Math.cos(rad + 0.4) * aHeadLen;
+          const a2y = ay - Math.sin(rad + 0.4) * aHeadLen;
+
+          const arrow = document.createElementNS(svgNS, 'polygon');
+          arrow.setAttribute('points', `${ax},${ay} ${a1x},${a1y} ${a2x},${a2y}`);
+          arrow.setAttribute('fill', '#e74c3c');
+          arrow.setAttribute('opacity', '0.9');
+          svg.appendChild(arrow);
+        });
+
+        group.appendChild(svg);
+        xOffset += charWidth;
+      }
+    }
+
+    // Transform SVG path coordinates from relative to absolute pixel positions
+    function transformPath(d, scaleX, scaleY, lineHeight) {
+      // Parse and transform coordinates in the path string
+      return d.replace(/([MCLQ])\s*([\d\s.,e-]+)/gi, (match, cmd, coords) => {
+        const nums = coords.trim().split(/[\s,]+/).map(Number);
+        const transformed = [];
+        for (let i = 0; i < nums.length; i += 2) {
+          const x = nums[i] * scaleX;
+          const y = lineHeight - (1 - nums[i + 1]) * scaleY;
+          transformed.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+        }
+        return cmd + ' ' + transformed.join(' ');
+      });
+    }
+
     function getCursiveFont(mode, guidance) {
       if (mode === 'trace') {
         return guidance ? 'FRBCursiveGuideDotted' : 'FRBCursiveDotted';
@@ -428,6 +763,9 @@
           for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, lineHeight, midRatio);
             addTextToLine(group, line, fontSize, lineHeight, '#ccc', letterStyle, mode, guidance);
+            if (guidance && letterStyle === 'print') {
+              renderStrokeGuidance(group, line, fontSize, lineHeight);
+            }
             preview.appendChild(group);
             linesUsed++;
           }
@@ -444,6 +782,9 @@
           // Model line
           const modelGroup = createLineGroup(lineStyle, lineHeight, midRatio);
           addTextToLine(modelGroup, line, fontSize, lineHeight, '#000', letterStyle, mode, guidance);
+          if (guidance && letterStyle === 'print') {
+            renderStrokeGuidance(modelGroup, line, fontSize, lineHeight);
+          }
           preview.appendChild(modelGroup);
           linesUsed++;
           // Blank practice lines
