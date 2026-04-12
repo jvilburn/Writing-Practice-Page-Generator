@@ -318,45 +318,126 @@
       $('#fontSizeValue').textContent = $('#fontSize').value + 'px';
     }
 
+    function getContent() {
+      const contentType = getVal('content');
+      if (contentType === 'alphabet') {
+        const parts = [];
+        if ($('#uppercase').checked) parts.push('A B C D E F G H I J K L M N O P Q R S T U V W X Y Z');
+        if ($('#lowercase').checked) parts.push('a b c d e f g h i j k l m n o p q r s t u v w x y z');
+        return parts.length ? parts : ['A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'];
+      }
+      const text = $('#customText').value.trim();
+      if (!text) return [];
+      return text.split('\n').filter(line => line.trim());
+    }
+
+    function createLineGroup(lineStyle, lineHeight, midRatio) {
+      const group = document.createElement('div');
+      group.className = 'line-group';
+      group.style.height = lineHeight + 'px';
+
+      if (lineStyle === 'ruled') {
+        const top = document.createElement('div');
+        top.className = 'top-line';
+        group.appendChild(top);
+
+        const mid = document.createElement('div');
+        mid.className = 'mid-line';
+        mid.style.top = (lineHeight * midRatio) + 'px';
+        group.appendChild(mid);
+
+        const base = document.createElement('div');
+        base.className = 'base-line';
+        group.appendChild(base);
+      } else {
+        const base = document.createElement('div');
+        base.className = 'base-line';
+        group.appendChild(base);
+      }
+
+      return group;
+    }
+
+    function addTextToLine(group, text, fontSize, lineHeight, color) {
+      const span = document.createElement('span');
+      span.textContent = text;
+      span.style.cssText = `
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        font-size: ${fontSize}px;
+        line-height: ${lineHeight}px;
+        font-family: Arial, Helvetica, sans-serif;
+        color: ${color};
+        white-space: nowrap;
+        font-feature-settings: "calt" 1;
+      `;
+      group.appendChild(span);
+    }
+
     function renderPreview() {
       const preview = $('#preview');
       preview.innerHTML = '';
 
       const lineStyle = getVal('lineStyle');
+      const mode = getVal('mode');
+      const letterStyle = getVal('letterStyle');
       const fontSize = parseInt($('#fontSize').value);
-      // Line height: ascender space + x-height + descender space + gap
       const lineHeight = fontSize * 2.4;
-      // Midline sits at roughly 50% of the writing area (top of x-height)
       const midRatio = 0.42;
+      const traceReps = parseInt($('#traceReps').value) || 4;
+      const blankLines = parseInt($('#blankLines').value) || 3;
 
       const availableHeight = preview.clientHeight - parseFloat(getComputedStyle(preview).paddingTop) * 2;
-      const lineCount = Math.floor(availableHeight / lineHeight);
+      const maxLines = Math.floor(availableHeight / lineHeight);
 
-      for (let i = 0; i < lineCount; i++) {
-        const group = document.createElement('div');
-        group.className = 'line-group';
-        group.style.height = lineHeight + 'px';
+      const content = getContent();
+      if (content.length === 0 && getVal('content') === 'custom') {
+        const msg = document.createElement('p');
+        msg.textContent = 'Type words or sentences in the controls panel...';
+        msg.style.cssText = 'color: #aaa; font-style: italic; padding-top: 40px; text-align: center;';
+        preview.appendChild(msg);
+        return;
+      }
 
-        if (lineStyle === 'ruled') {
-          const top = document.createElement('div');
-          top.className = 'top-line';
-          group.appendChild(top);
+      let linesUsed = 0;
 
-          const mid = document.createElement('div');
-          mid.className = 'mid-line';
-          mid.style.top = (lineHeight * midRatio) + 'px';
-          group.appendChild(mid);
-
-          const base = document.createElement('div');
-          base.className = 'base-line';
-          group.appendChild(base);
-        } else {
-          const base = document.createElement('div');
-          base.className = 'base-line';
-          group.appendChild(base);
+      if (mode === 'trace') {
+        // Trace mode: repeat each content line traceReps times
+        for (const line of content) {
+          for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
+            const group = createLineGroup(lineStyle, lineHeight, midRatio);
+            const color = (letterStyle === 'print') ? '#ccc' : '#333';
+            addTextToLine(group, line, fontSize, lineHeight, color);
+            preview.appendChild(group);
+            linesUsed++;
+          }
         }
-
-        preview.appendChild(group);
+        // Fill remaining with blank lines
+        while (linesUsed < maxLines) {
+          preview.appendChild(createLineGroup(lineStyle, lineHeight, midRatio));
+          linesUsed++;
+        }
+      } else {
+        // Copy mode: model line, then N blank lines
+        for (const line of content) {
+          if (linesUsed >= maxLines) break;
+          // Model line
+          const modelGroup = createLineGroup(lineStyle, lineHeight, midRatio);
+          addTextToLine(modelGroup, line, fontSize, lineHeight, '#333');
+          preview.appendChild(modelGroup);
+          linesUsed++;
+          // Blank practice lines
+          for (let b = 0; b < blankLines && linesUsed < maxLines; b++) {
+            preview.appendChild(createLineGroup(lineStyle, lineHeight, midRatio));
+            linesUsed++;
+          }
+        }
+        // Fill remaining with blank lines
+        while (linesUsed < maxLines) {
+          preview.appendChild(createLineGroup(lineStyle, lineHeight, midRatio));
+          linesUsed++;
+        }
       }
     }
 
