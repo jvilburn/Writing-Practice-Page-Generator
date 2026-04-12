@@ -187,7 +187,7 @@
     #preview-container {
       flex: 1;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: center;
       padding: 20px;
       overflow: auto;
@@ -261,7 +261,7 @@
 
       <div class="control-group">
         <h3>Practice Mode</h3>
-        <label><input type="radio" name="mode" value="trace" checked> Trace (gray/dotted)</label>
+        <label><input type="radio" name="mode" value="trace" checked> Trace (gray)</label>
         <label><input type="radio" name="mode" value="copy"> Copy (model + blank lines)</label>
       </div>
 
@@ -926,7 +926,7 @@
           for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
             preview.appendChild(group);
-            addTextToLine(group, line, fontSize, writingHeight, '#ccc', letterStyle, mode, guidance);
+            addTextToLine(group, line, fontSize, writingHeight, '#ddd', letterStyle, mode, guidance);
             if (guidance && letterStyle === 'print') {
               renderStrokeGuidance(group, line, fontSize, writingHeight);
             }
@@ -993,13 +993,16 @@
       $('#printBtn').addEventListener('click', () => window.print());
     }
 
-    // Initialize after fonts are loaded
+    // Initialize after all fonts (including cursive) are loaded
     wireControls();
     updateVisibility();
     updateOrientation();
 
-    document.fonts.ready.then(() => {
-      renderPreview();
+    // Pre-load cursive font so it's ready when user switches to it
+    document.fonts.load("48px 'FRBCursive'").then(() => {
+      document.fonts.ready.then(() => {
+        renderPreview();
+      });
     });
   </script>
 </body>
