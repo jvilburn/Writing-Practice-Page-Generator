@@ -131,6 +131,35 @@
       background: #1d4ed8;
     }
 
+    /* Line Groups */
+    .line-group {
+      position: relative;
+      width: 100%;
+    }
+    .line-group .top-line {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      border-top: 1px solid #999;
+    }
+    .line-group .mid-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-top: 1px dashed #bbb;
+    }
+    .line-group .base-line {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      border-top: 1.5px solid #999;
+    }
+    #preview {
+      padding: 0.4in 0.5in;
+    }
+
     /* Preview Container */
     #preview-container {
       flex: 1;
@@ -292,16 +321,82 @@
       $('#fontSizeValue').textContent = $('#fontSize').value + 'px';
     }
 
-    // Wire up all controls
-    $$('input[name="mode"]').forEach(el => el.addEventListener('change', updateVisibility));
-    $$('input[name="content"]').forEach(el => el.addEventListener('change', updateVisibility));
-    $$('input[name="orientation"]').forEach(el => el.addEventListener('change', updateOrientation));
-    $('#fontSize').addEventListener('input', updateFontSizeLabel);
-    $('#printBtn').addEventListener('click', () => window.print());
+    function renderPreview() {
+      const preview = $('#preview');
+      preview.innerHTML = '';
 
-    // Initial state
+      const lineStyle = getVal('lineStyle');
+      const fontSize = parseInt($('#fontSize').value);
+      // Line height: ascender space + x-height + descender space + gap
+      const lineHeight = fontSize * 2.4;
+      // Midline sits at roughly 50% of the writing area (top of x-height)
+      const midRatio = 0.5;
+
+      const availableHeight = preview.clientHeight - parseFloat(getComputedStyle(preview).paddingTop) * 2;
+      const lineCount = Math.floor(availableHeight / lineHeight);
+
+      for (let i = 0; i < lineCount; i++) {
+        const group = document.createElement('div');
+        group.className = 'line-group';
+        group.style.height = lineHeight + 'px';
+
+        if (lineStyle === 'ruled') {
+          const top = document.createElement('div');
+          top.className = 'top-line';
+          group.appendChild(top);
+
+          const mid = document.createElement('div');
+          mid.className = 'mid-line';
+          mid.style.top = (lineHeight * midRatio) + 'px';
+          group.appendChild(mid);
+
+          const base = document.createElement('div');
+          base.className = 'base-line';
+          group.appendChild(base);
+        } else {
+          const base = document.createElement('div');
+          base.className = 'base-line';
+          group.appendChild(base);
+        }
+
+        preview.appendChild(group);
+      }
+    }
+
+    // Wire up all controls to re-render
+    function wireControls() {
+      const renderInputs = [
+        ...$$('input[name="mode"]'),
+        ...$$('input[name="content"]'),
+        ...$$('input[name="lineStyle"]'),
+        ...$$('input[name="letterStyle"]'),
+        ...$$('input[name="orientation"]'),
+      ];
+      renderInputs.forEach(el => el.addEventListener('change', () => {
+        updateVisibility();
+        updateOrientation();
+        renderPreview();
+      }));
+
+      $('#fontSize').addEventListener('input', () => {
+        updateFontSizeLabel();
+        renderPreview();
+      });
+
+      $('#traceReps').addEventListener('change', renderPreview);
+      $('#blankLines').addEventListener('change', renderPreview);
+      $('#uppercase').addEventListener('change', renderPreview);
+      $('#lowercase').addEventListener('change', renderPreview);
+      $('#strokeGuide').addEventListener('change', renderPreview);
+      $('#customText').addEventListener('input', renderPreview);
+      $('#printBtn').addEventListener('click', () => window.print());
+    }
+
+    // Initialize
+    wireControls();
     updateVisibility();
     updateOrientation();
+    renderPreview();
   </script>
 </body>
 </html>
