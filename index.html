@@ -587,23 +587,30 @@
     };
 
     function renderStrokeGuidance(group, text, fontSize, lineHeight) {
-      // Measure character positions using a hidden canvas
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      ctx.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+      // Measure character positions using a hidden span with the same font as rendered text
+      const measurer = document.createElement('span');
+      measurer.style.cssText = `
+        font-size: ${fontSize}px;
+        font-family: Arial, Helvetica, sans-serif;
+        position: absolute;
+        visibility: hidden;
+        white-space: pre;
+      `;
+      group.appendChild(measurer);
 
       const scale = fontSize;
       let xOffset = 0;
 
       for (const char of text) {
+        // Measure actual rendered width of this character
+        measurer.textContent = char;
+        const charWidth = measurer.getBoundingClientRect().width;
+
         const data = STROKE_DATA[char];
         if (!data) {
-          // Space or unmapped character — just advance
-          xOffset += ctx.measureText(char).width;
+          xOffset += charWidth;
           continue;
         }
-
-        const charWidth = ctx.measureText(char).width;
         const svgNS = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(svgNS, 'svg');
         svg.setAttribute('width', charWidth);
@@ -676,11 +683,12 @@
         group.appendChild(svg);
         xOffset += charWidth;
       }
+      group.removeChild(measurer);
     }
 
     // Transform SVG path coordinates from relative to absolute pixel positions
+    // Only handles M, C, L, Q commands — the only commands used in STROKE_DATA paths
     function transformPath(d, scaleX, scaleY, lineHeight) {
-      // Parse and transform coordinates in the path string
       return d.replace(/([MCLQ])\s*([\d\s.,e-]+)/gi, (match, cmd, coords) => {
         const nums = coords.trim().split(/[\s,]+/).map(Number);
         const transformed = [];
