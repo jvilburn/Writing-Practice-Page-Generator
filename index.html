@@ -130,6 +130,30 @@
     #printBtn:hover {
       background: #1d4ed8;
     }
+    #loadingMsg {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+      font-style: italic;
+    }
+
+    /* Responsive: stack panels on narrow screens */
+    @media screen and (max-width: 900px) {
+      #app {
+        flex-direction: column;
+        height: auto;
+      }
+      #controls {
+        width: 100%;
+        min-width: auto;
+        border-right: none;
+        border-bottom: 1px solid #ccc;
+        max-height: 50vh;
+      }
+      #preview-container {
+        min-height: 60vh;
+      }
+    }
 
     /* Line Groups */
     .line-group {
@@ -287,7 +311,7 @@
     </aside>
     <main id="preview-container">
       <div id="preview" class="landscape">
-        <!-- Live preview renders here -->
+        <p id="loadingMsg">Loading fonts...</p>
       </div>
     </main>
   </div>
@@ -742,6 +766,8 @@
         font-family: ${fontFamily};
         color: ${color};
         white-space: nowrap;
+        overflow: hidden;
+        max-width: 100%;
         ${features}
       `;
       group.appendChild(span);
@@ -848,11 +874,14 @@
       $('#printBtn').addEventListener('click', () => window.print());
     }
 
-    // Initialize
+    // Initialize after fonts are loaded
     wireControls();
     updateVisibility();
     updateOrientation();
-    renderPreview();
+
+    document.fonts.ready.then(() => {
+      renderPreview();
+    });
   </script>
 </body>
 </html>
