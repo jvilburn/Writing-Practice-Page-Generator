@@ -758,16 +758,16 @@
         fontFamily = "Arial, Helvetica, sans-serif";
         features = '';
       }
-      // Position text so its baseline aligns with the bottom of the writing area.
-      // The descender portion (about 20-25% of fontSize) extends below the baseline
-      // into the gap area, which is the correct visual behavior.
-      const descenderOffset = fontSize * 0.22;
+      // Position text so its baseline aligns with the baseline rule (bottom of writing area).
+      // Descenders extend below into the gap, which is correct.
+      // Arial descender ≈ 0.21 * fontSize
+      const descenderOffset = fontSize * 0.21;
       span.style.cssText = `
         position: absolute;
         bottom: -${descenderOffset}px;
         left: 0;
         font-size: ${fontSize}px;
-        line-height: ${writingHeight}px;
+        line-height: normal;
         font-family: ${fontFamily};
         color: ${color};
         white-space: nowrap;
@@ -786,13 +786,15 @@
       const mode = getVal('mode');
       const letterStyle = getVal('letterStyle');
       const fontSize = parseInt($('#fontSize').value);
-      // Writing area: top-line to baseline (cap height + small padding)
-      const writingHeight = fontSize * 1.3;
+      // Writing area: top-line to baseline (matches font cap height)
+      const writingHeight = fontSize * 0.75;
       // Gap below baseline: descender space + inter-line spacing
-      const gap = fontSize * 0.9;
+      const gap = fontSize * 0.55;
       // Total height per line slot
       const totalLineHeight = writingHeight + gap;
-      const midRatio = 0.42;
+      // Midline marks x-height: (capHeight - xHeight) / capHeight
+      // Arial cap ≈ 0.72em, x-height ≈ 0.52em → ratio ≈ 0.28
+      const midRatio = 0.28;
       const traceReps = parseInt($('#traceReps').value) || 4;
       const blankLines = parseInt($('#blankLines').value) || 3;
       const guidance = $('#strokeGuide').checked;
