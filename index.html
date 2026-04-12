@@ -63,6 +63,73 @@
       padding: 16px;
       overflow-y: auto;
     }
+    .control-group {
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #eee;
+    }
+    .control-group:last-of-type {
+      border-bottom: none;
+    }
+    .control-group h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .control-group label {
+      display: block;
+      margin-bottom: 4px;
+      cursor: pointer;
+    }
+    .control-group label input[type="radio"],
+    .control-group label input[type="checkbox"] {
+      margin-right: 6px;
+    }
+    .control-group textarea {
+      width: 100%;
+      height: 80px;
+      resize: vertical;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .control-group input[type="range"] {
+      width: 100%;
+    }
+    .control-group input[type="number"] {
+      width: 60px;
+      padding: 4px 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .range-value {
+      font-size: 12px;
+      color: #666;
+      margin-left: 6px;
+    }
+    .hidden {
+      display: none;
+    }
+    #printBtn {
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    #printBtn:hover {
+      background: #1d4ed8;
+    }
 
     /* Preview Container */
     #preview-container {
@@ -122,7 +189,65 @@
   <div id="app">
     <aside id="controls">
       <h2>Worksheet Settings</h2>
-      <!-- Controls will be added in Task 3 -->
+
+      <div class="control-group">
+        <h3>Letter Style</h3>
+        <label><input type="radio" name="letterStyle" value="print" checked> Print (block)</label>
+        <label><input type="radio" name="letterStyle" value="cursive"> Cursive</label>
+      </div>
+
+      <div class="control-group">
+        <h3>Practice Mode</h3>
+        <label><input type="radio" name="mode" value="trace" checked> Trace (gray/dotted)</label>
+        <label><input type="radio" name="mode" value="copy"> Copy (model + blank lines)</label>
+      </div>
+
+      <div class="control-group">
+        <h3>Line Style</h3>
+        <label><input type="radio" name="lineStyle" value="ruled" checked> 3-line ruled</label>
+        <label><input type="radio" name="lineStyle" value="baseline"> Simple baseline</label>
+      </div>
+
+      <div class="control-group">
+        <label><input type="checkbox" id="strokeGuide"> Show stroke guidance</label>
+      </div>
+
+      <div class="control-group">
+        <h3>Content</h3>
+        <label><input type="radio" name="content" value="alphabet" checked> Full Alphabet</label>
+        <label><input type="radio" name="content" value="custom"> Custom</label>
+        <div id="alphabetOptions">
+          <label><input type="checkbox" id="uppercase" checked> Uppercase</label>
+          <label><input type="checkbox" id="lowercase" checked> Lowercase</label>
+        </div>
+        <div id="customInput" class="hidden">
+          <textarea id="customText" placeholder="Type words or sentences here..."></textarea>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Font Size</h3>
+        <input type="range" id="fontSize" min="24" max="72" value="48">
+        <span class="range-value" id="fontSizeValue">48px</span>
+      </div>
+
+      <div class="control-group" id="traceRepGroup">
+        <h3>Trace Repetitions</h3>
+        <input type="number" id="traceReps" min="1" max="20" value="4">
+      </div>
+
+      <div class="control-group hidden" id="blankLinesGroup">
+        <h3>Blank Practice Lines</h3>
+        <input type="number" id="blankLines" min="1" value="3">
+      </div>
+
+      <div class="control-group">
+        <h3>Orientation</h3>
+        <label><input type="radio" name="orientation" value="landscape" checked> Landscape</label>
+        <label><input type="radio" name="orientation" value="portrait"> Portrait</label>
+      </div>
+
+      <button id="printBtn">Print / Save PDF</button>
     </aside>
     <main id="preview-container">
       <div id="preview" class="landscape">
@@ -130,5 +255,52 @@
       </div>
     </main>
   </div>
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    function getVal(name) {
+      const el = $(`input[name="${name}"]:checked`);
+      return el ? el.value : null;
+    }
+
+    function updateVisibility() {
+      const mode = getVal('mode');
+      const content = getVal('content');
+
+      // Trace reps vs blank lines
+      $('#traceRepGroup').classList.toggle('hidden', mode !== 'trace');
+      $('#blankLinesGroup').classList.toggle('hidden', mode !== 'copy');
+
+      // Alphabet options vs custom textarea
+      $('#alphabetOptions').classList.toggle('hidden', content !== 'alphabet');
+      $('#customInput').classList.toggle('hidden', content !== 'custom');
+    }
+
+    function updateOrientation() {
+      const orientation = getVal('orientation');
+      const preview = $('#preview');
+      preview.classList.toggle('landscape', orientation === 'landscape');
+      preview.classList.toggle('portrait', orientation === 'portrait');
+
+      // Update @page rule
+      $('#page-orientation').textContent =
+        `@page { size: ${orientation} letter; margin: 0; }`;
+    }
+
+    function updateFontSizeLabel() {
+      $('#fontSizeValue').textContent = $('#fontSize').value + 'px';
+    }
+
+    // Wire up all controls
+    $$('input[name="mode"]').forEach(el => el.addEventListener('change', updateVisibility));
+    $$('input[name="content"]').forEach(el => el.addEventListener('change', updateVisibility));
+    $$('input[name="orientation"]').forEach(el => el.addEventListener('change', updateOrientation));
+    $('#fontSize').addEventListener('input', updateFontSizeLabel);
+    $('#printBtn').addEventListener('click', () => window.print());
+
+    // Initial state
+    updateVisibility();
+  </script>
 </body>
 </html>
