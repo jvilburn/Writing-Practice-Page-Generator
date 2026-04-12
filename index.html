@@ -358,19 +358,25 @@
       return group;
     }
 
-    function addTextToLine(group, text, fontSize, lineHeight, color) {
+    function addTextToLine(group, text, fontSize, lineHeight, color, letterStyle) {
       const span = document.createElement('span');
       span.textContent = text;
+      const fontFamily = (letterStyle === 'cursive')
+        ? "'FRBCursive', cursive"
+        : "Arial, Helvetica, sans-serif";
+      const features = (letterStyle === 'cursive')
+        ? 'font-feature-settings: "calt" 1;'
+        : '';
       span.style.cssText = `
         position: absolute;
         bottom: 0;
         left: 0;
         font-size: ${fontSize}px;
         line-height: ${lineHeight}px;
-        font-family: Arial, Helvetica, sans-serif;
+        font-family: ${fontFamily};
         color: ${color};
         white-space: nowrap;
-        font-feature-settings: "calt" 1;
+        ${features}
       `;
       group.appendChild(span);
     }
@@ -407,8 +413,7 @@
         for (const line of content) {
           for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, lineHeight, midRatio);
-            const color = (letterStyle === 'print') ? '#ccc' : '#333';
-            addTextToLine(group, line, fontSize, lineHeight, color);
+            addTextToLine(group, line, fontSize, lineHeight, '#ccc', letterStyle);
             preview.appendChild(group);
             linesUsed++;
           }
@@ -424,7 +429,7 @@
           if (linesUsed >= maxLines) break;
           // Model line
           const modelGroup = createLineGroup(lineStyle, lineHeight, midRatio);
-          addTextToLine(modelGroup, line, fontSize, lineHeight, '#333');
+          addTextToLine(modelGroup, line, fontSize, lineHeight, '#000', letterStyle);
           preview.appendChild(modelGroup);
           linesUsed++;
           // Blank practice lines
