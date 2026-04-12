@@ -800,12 +800,8 @@
     function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance) {
       let fontFamily, features;
       if (letterStyle === 'cursive') {
-        const cursiveFont = getCursiveFont(mode, guidance);
-        fontFamily = `'${cursiveFont}', cursive`;
+        fontFamily = "'FRBCursive', cursive";
         features = 'font-feature-settings: "calt" 1;';
-        // Cursive trace uses dotted font variant for visual style,
-        // so render at full opacity instead of gray
-        if (mode === 'trace') color = '#000';
       } else {
         fontFamily = "'Andika', sans-serif";
         features = '';
@@ -862,22 +858,26 @@
 
       const textEl = document.createElementNS(svgNS, 'text');
       textEl.setAttribute('x', '0');
-      textEl.setAttribute('y', writingHeight - 1);
+      const yOffset = letterStyle === 'cursive' ? (1 + writingHeight * 0.02) : 1;
+      textEl.setAttribute('y', writingHeight - yOffset);
       textEl.setAttribute('dominant-baseline', 'alphabetic');
       textEl.setAttribute('font-family', fontFamily);
       textEl.setAttribute('fill', color);
-      if (features) {
-        textEl.style.fontFeatureSettings = '"calt" 1, "liga" 0';
+      if (letterStyle === 'cursive') {
+        // Cursive: single font size, no tspans — preserves letter joining via calt
+        textEl.setAttribute('font-size', (fontSizeUpper * 0.94) + 'px');
+        textEl.style.fontFeatureSettings = '"calt" 1';
+        textEl.textContent = text;
       } else {
+        // Print: per-character tspans for upper/lower sizing, ligatures disabled
         textEl.style.fontFeatureSettings = '"liga" 0';
-      }
-
-      for (const ch of text) {
-        const tspan = document.createElementNS(svgNS, 'tspan');
-        tspan.textContent = ch;
-        const isLower = ch >= 'a' && ch <= 'z';
-        tspan.setAttribute('font-size', (isLower ? fontSizeLower : fontSizeUpper) + 'px');
-        textEl.appendChild(tspan);
+        for (const ch of text) {
+          const tspan = document.createElementNS(svgNS, 'tspan');
+          tspan.textContent = ch;
+          const isLower = ch >= 'a' && ch <= 'z';
+          tspan.setAttribute('font-size', (isLower ? fontSizeLower : fontSizeUpper) + 'px');
+          textEl.appendChild(tspan);
+        }
       }
 
       svg.appendChild(textEl);
