@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Handwriting Worksheet Generator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Andika&display=swap" rel="stylesheet">
   <style>
     /* Font Faces */
     @font-face {
@@ -337,6 +340,57 @@
       $('#customInput').classList.toggle('hidden', content !== 'custom');
     }
 
+    // Measure actual font metrics using canvas pixel scanning
+    function measureFontMetrics(fontFamily, fontSize) {
+      const canvas = document.createElement('canvas');
+      const size = fontSize * 3;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.font = `${fontSize}px ${fontFamily}`;
+      ctx.textBaseline = 'alphabetic';
+      const baseline = Math.round(size * 0.6);
+
+      function getTopBottom(char) {
+        ctx.clearRect(0, 0, size, size);
+        ctx.fillText(char, 0, baseline);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        let top = size, bottom = 0;
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            if (data[(y * size + x) * 4 + 3] > 0) {
+              if (y < top) top = y;
+              if (y > bottom) bottom = y;
+            }
+          }
+        }
+        return { top, bottom };
+      }
+
+      const cap = getTopBottom('H');
+      const asc = getTopBottom('b');
+      const xh = getTopBottom('x');
+      const desc = getTopBottom('g');
+
+      return {
+        capHeight: (baseline - cap.top) / fontSize,
+        ascender: (baseline - asc.top) / fontSize,
+        xHeight: (baseline - xh.top) / fontSize,
+        descender: (desc.bottom - baseline) / fontSize,
+      };
+    }
+
+    let _cachedMetrics = null;
+    let _cachedMetricsKey = '';
+    function getFontMetrics(fontFamily, fontSize) {
+      const key = fontFamily + '|' + fontSize;
+      if (_cachedMetricsKey !== key) {
+        _cachedMetrics = measureFontMetrics(fontFamily, fontSize);
+        _cachedMetricsKey = key;
+      }
+      return _cachedMetrics;
+    }
+
     function updateOrientation() {
       const orientation = getVal('orientation');
       const preview = $('#preview');
@@ -626,14 +680,14 @@
       const measurer = document.createElement('span');
       measurer.style.cssText = `
         font-size: ${fontSize}px;
-        font-family: Arial, Helvetica, sans-serif;
+        font-family: 'Andika', sans-serif;
         position: absolute;
         visibility: hidden;
         white-space: pre;
       `;
       group.appendChild(measurer);
 
-      const scale = fontSize;
+      const scale = lineHeight;
       let xOffset = 0;
 
       for (const char of text) {
@@ -744,8 +798,6 @@
     }
 
     function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance) {
-      const span = document.createElement('span');
-      span.textContent = text;
       let fontFamily, features;
       if (letterStyle === 'cursive') {
         const cursiveFont = getCursiveFont(mode, guidance);
@@ -755,27 +807,81 @@
         // so render at full opacity instead of gray
         if (mode === 'trace') color = '#000';
       } else {
-        fontFamily = "Arial, Helvetica, sans-serif";
+        fontFamily = "'Andika', sans-serif";
         features = '';
       }
-      // Position text so its baseline aligns with the baseline rule (bottom of writing area).
-      // Descenders extend below into the gap, which is correct.
-      // Arial descender ≈ 0.21 * fontSize
-      const descenderOffset = fontSize * 0.21;
-      span.style.cssText = `
+      // Measure actual ink bounds using canvas pixel scanning
+      function measureCharInk(ch, fs) {
+        const canvas = document.createElement('canvas');
+        const pad = Math.ceil(fs * 1.5);
+        canvas.width = pad * 2;
+        canvas.height = pad * 2;
+        const ctx = canvas.getContext('2d');
+        ctx.font = `${fs}px ${fontFamily}`;
+        ctx.textBaseline = 'alphabetic';
+        const baseline = pad;
+        ctx.fillText(ch, 10, baseline);
+        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let top = canvas.height, bottom = 0;
+        for (let y = 0; y < canvas.height; y++) {
+          for (let x = 0; x < canvas.width; x++) {
+            if (data[(y * canvas.width + x) * 4 + 3] > 20) {
+              if (y < top) top = y;
+              if (y > bottom) bottom = y;
+            }
+          }
+        }
+        return {
+          above: baseline - top,
+          below: bottom - baseline,
+        };
+      }
+
+      // Measure at large reference size for precision
+      const refSize = 500;
+      const refO_upper = measureCharInk('O', refSize);
+      const refO_lower = measureCharInk('o', refSize);
+
+      // Uppercase: 'O' ink height fills writingHeight (baseline to top line)
+      const fontSizeUpper = writingHeight / refO_upper.above * refSize;
+      // Lowercase: 'o' ink height fills midline to baseline (50% of writingHeight)
+      const fontSizeLower = (writingHeight * 0.5) / refO_lower.above * refSize * 1.10;
+
+      // Single SVG with one <text> element, tspans for per-character font size
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('width', '100%');
+      svg.setAttribute('height', writingHeight * 2);
+      svg.style.cssText = `
         position: absolute;
-        bottom: -${descenderOffset}px;
+        top: 0;
         left: 0;
-        font-size: ${fontSize}px;
-        line-height: normal;
-        font-family: ${fontFamily};
-        color: ${color};
-        white-space: nowrap;
-        overflow: hidden;
-        max-width: 100%;
-        ${features}
+        overflow: visible;
+        pointer-events: none;
       `;
-      group.appendChild(span);
+
+      const textEl = document.createElementNS(svgNS, 'text');
+      textEl.setAttribute('x', '0');
+      textEl.setAttribute('y', writingHeight - 1);
+      textEl.setAttribute('dominant-baseline', 'alphabetic');
+      textEl.setAttribute('font-family', fontFamily);
+      textEl.setAttribute('fill', color);
+      if (features) {
+        textEl.style.fontFeatureSettings = '"calt" 1, "liga" 0';
+      } else {
+        textEl.style.fontFeatureSettings = '"liga" 0';
+      }
+
+      for (const ch of text) {
+        const tspan = document.createElementNS(svgNS, 'tspan');
+        tspan.textContent = ch;
+        const isLower = ch >= 'a' && ch <= 'z';
+        tspan.setAttribute('font-size', (isLower ? fontSizeLower : fontSizeUpper) + 'px');
+        textEl.appendChild(tspan);
+      }
+
+      svg.appendChild(textEl);
+      group.appendChild(svg);
     }
 
     function renderPreview() {
@@ -785,14 +891,16 @@
       const lineStyle = getVal('lineStyle');
       const mode = getVal('mode');
       const letterStyle = getVal('letterStyle');
-      const fontSize = parseInt($('#fontSize').value);
-      // Writing area: top-line to baseline
-      const writingHeight = fontSize * 0.85;
+      // Slider controls writingHeight (top line to baseline distance).
+      // CSS font-size is scaled up so cap height fills that space exactly.
+      const writingHeight = parseInt($('#fontSize').value);
+      const printFont = "'Andika', sans-serif";
+      const metrics = getFontMetrics(printFont, 100); // measure at reference size
+      const fontSize = writingHeight / metrics.capHeight;
       // Gap below baseline: descender space + inter-line spacing
-      const gap = fontSize * 0.5;
+      const gap = fontSize * (metrics.descender + 0.25);
       // Total height per line slot
       const totalLineHeight = writingHeight + gap;
-      // Midline at 50% — standard handwriting paper proportion
       const midRatio = 0.5;
       const traceReps = parseInt($('#traceReps').value) || 4;
       const blankLines = parseInt($('#blankLines').value) || 3;
@@ -817,11 +925,11 @@
         for (const line of content) {
           for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+            preview.appendChild(group);
             addTextToLine(group, line, fontSize, writingHeight, '#ccc', letterStyle, mode, guidance);
             if (guidance && letterStyle === 'print') {
               renderStrokeGuidance(group, line, fontSize, writingHeight);
             }
-            preview.appendChild(group);
             linesUsed++;
           }
         }
@@ -836,11 +944,11 @@
           if (linesUsed >= maxLines) break;
           // Model line
           const modelGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+          preview.appendChild(modelGroup);
           addTextToLine(modelGroup, line, fontSize, writingHeight, '#000', letterStyle, mode, guidance);
           if (guidance && letterStyle === 'print') {
             renderStrokeGuidance(modelGroup, line, fontSize, writingHeight);
           }
-          preview.appendChild(modelGroup);
           linesUsed++;
           // Blank practice lines
           for (let b = 0; b < blankLines && linesUsed < maxLines; b++) {
