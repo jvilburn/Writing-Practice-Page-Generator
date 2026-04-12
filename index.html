@@ -365,10 +365,11 @@
       return text.split('\n').filter(line => line.trim());
     }
 
-    function createLineGroup(lineStyle, lineHeight, midRatio) {
+    function createLineGroup(lineStyle, writingHeight, gap, midRatio) {
       const group = document.createElement('div');
       group.className = 'line-group';
-      group.style.height = lineHeight + 'px';
+      group.style.height = writingHeight + 'px';
+      group.style.marginBottom = gap + 'px';
 
       if (lineStyle === 'ruled') {
         const top = document.createElement('div');
@@ -377,7 +378,7 @@
 
         const mid = document.createElement('div');
         mid.className = 'mid-line';
-        mid.style.top = (lineHeight * midRatio) + 'px';
+        mid.style.top = (writingHeight * midRatio) + 'px';
         group.appendChild(mid);
 
         const base = document.createElement('div');
@@ -742,7 +743,7 @@
       return guidance ? 'FRBCursiveArrow' : 'FRBCursive';
     }
 
-    function addTextToLine(group, text, fontSize, lineHeight, color, letterStyle, mode, guidance) {
+    function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance) {
       const span = document.createElement('span');
       span.textContent = text;
       let fontFamily, features;
@@ -757,12 +758,16 @@
         fontFamily = "Arial, Helvetica, sans-serif";
         features = '';
       }
+      // Position text so its baseline aligns with the bottom of the writing area.
+      // The descender portion (about 20-25% of fontSize) extends below the baseline
+      // into the gap area, which is the correct visual behavior.
+      const descenderOffset = fontSize * 0.22;
       span.style.cssText = `
         position: absolute;
-        bottom: 0;
+        bottom: -${descenderOffset}px;
         left: 0;
         font-size: ${fontSize}px;
-        line-height: ${lineHeight}px;
+        line-height: ${writingHeight}px;
         font-family: ${fontFamily};
         color: ${color};
         white-space: nowrap;
@@ -781,14 +786,19 @@
       const mode = getVal('mode');
       const letterStyle = getVal('letterStyle');
       const fontSize = parseInt($('#fontSize').value);
-      const lineHeight = fontSize * 2.4;
+      // Writing area: top-line to baseline (cap height + small padding)
+      const writingHeight = fontSize * 1.3;
+      // Gap below baseline: descender space + inter-line spacing
+      const gap = fontSize * 0.9;
+      // Total height per line slot
+      const totalLineHeight = writingHeight + gap;
       const midRatio = 0.42;
       const traceReps = parseInt($('#traceReps').value) || 4;
       const blankLines = parseInt($('#blankLines').value) || 3;
       const guidance = $('#strokeGuide').checked;
 
       const availableHeight = preview.clientHeight - parseFloat(getComputedStyle(preview).paddingTop) * 2;
-      const maxLines = Math.floor(availableHeight / lineHeight);
+      const maxLines = Math.floor(availableHeight / totalLineHeight);
 
       const content = getContent();
       if (content.length === 0 && getVal('content') === 'custom') {
@@ -805,10 +815,10 @@
         // Trace mode: repeat each content line traceReps times
         for (const line of content) {
           for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
-            const group = createLineGroup(lineStyle, lineHeight, midRatio);
-            addTextToLine(group, line, fontSize, lineHeight, '#ccc', letterStyle, mode, guidance);
+            const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+            addTextToLine(group, line, fontSize, writingHeight, '#ccc', letterStyle, mode, guidance);
             if (guidance && letterStyle === 'print') {
-              renderStrokeGuidance(group, line, fontSize, lineHeight);
+              renderStrokeGuidance(group, line, fontSize, writingHeight);
             }
             preview.appendChild(group);
             linesUsed++;
@@ -816,7 +826,7 @@
         }
         // Fill remaining with blank lines
         while (linesUsed < maxLines) {
-          preview.appendChild(createLineGroup(lineStyle, lineHeight, midRatio));
+          preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
           linesUsed++;
         }
       } else {
@@ -824,22 +834,22 @@
         for (const line of content) {
           if (linesUsed >= maxLines) break;
           // Model line
-          const modelGroup = createLineGroup(lineStyle, lineHeight, midRatio);
-          addTextToLine(modelGroup, line, fontSize, lineHeight, '#000', letterStyle, mode, guidance);
+          const modelGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+          addTextToLine(modelGroup, line, fontSize, writingHeight, '#000', letterStyle, mode, guidance);
           if (guidance && letterStyle === 'print') {
-            renderStrokeGuidance(modelGroup, line, fontSize, lineHeight);
+            renderStrokeGuidance(modelGroup, line, fontSize, writingHeight);
           }
           preview.appendChild(modelGroup);
           linesUsed++;
           // Blank practice lines
           for (let b = 0; b < blankLines && linesUsed < maxLines; b++) {
-            preview.appendChild(createLineGroup(lineStyle, lineHeight, midRatio));
+            preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
             linesUsed++;
           }
         }
         // Fill remaining with blank lines
         while (linesUsed < maxLines) {
-          preview.appendChild(createLineGroup(lineStyle, lineHeight, midRatio));
+          preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
           linesUsed++;
         }
       }
