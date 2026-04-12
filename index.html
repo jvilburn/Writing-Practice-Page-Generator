@@ -156,10 +156,6 @@
       right: 0;
       border-top: 1.5px solid #999;
     }
-    #preview {
-      padding: 0.4in 0.5in;
-    }
-
     /* Preview Container */
     #preview-container {
       flex: 1;
@@ -176,6 +172,7 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
       position: relative;
       overflow: hidden;
+      padding: 0.4in 0.5in;
     }
     #preview.landscape {
       width: 11in;
@@ -330,7 +327,7 @@
       // Line height: ascender space + x-height + descender space + gap
       const lineHeight = fontSize * 2.4;
       // Midline sits at roughly 50% of the writing area (top of x-height)
-      const midRatio = 0.5;
+      const midRatio = 0.42;
 
       const availableHeight = preview.clientHeight - parseFloat(getComputedStyle(preview).paddingTop) * 2;
       const lineCount = Math.floor(availableHeight / lineHeight);
