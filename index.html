@@ -815,11 +815,11 @@
         data.strokes.forEach((stroke, idx) => {
           const cx = stroke.start[0] * scaleX;
           const cy = stroke.start[1] * scaleY;
-          const r = Math.max(2, charFontSize * 0.026);
+          const r = Math.max(4, charFontSize * 0.052);
 
           // Arrow first (behind circle)
           const rad = stroke.angle * Math.PI / 180;
-          const arrowLen = Math.max(6, charFontSize * 0.06);
+          const arrowLen = Math.max(12, charFontSize * 0.12);
           const shaftEnd = r + arrowLen * 0.4;
           const tipDist = r + arrowLen * 0.7;
           const ax = cx + Math.cos(rad) * tipDist;
@@ -1008,7 +1008,35 @@
       const availableHeight = preview.clientHeight - parseFloat(getComputedStyle(preview).paddingTop) * 2;
       const maxLines = Math.floor(availableHeight / totalLineHeight);
 
-      const content = getContent();
+      // Wrap long lines to fit available width
+      // Use paper dimensions (not screen) for wrapping: 8.5in or 11in minus 0.5in padding each side
+      const orientation = getVal('orientation');
+      const paperWidthIn = orientation === 'landscape' ? 11 : 8.5;
+      const availableWidth = (paperWidthIn - 1) * 96; // 96 CSS px per inch, minus 0.5in padding each side
+      function wrapLines(lines) {
+        const wrapped = [];
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const fontFamily = letterStyle === 'cursive' ? "'FRBCursive', cursive" : "'Andika', sans-serif";
+        ctx.font = `${fontSize}px ${fontFamily}`;
+        for (const line of lines) {
+          const words = line.split(' ');
+          let current = '';
+          for (const word of words) {
+            const test = current ? current + ' ' + word : word;
+            if (ctx.measureText(test).width > availableWidth && current.length > 0) {
+              wrapped.push(current);
+              current = word;
+            } else {
+              current = test;
+            }
+          }
+          if (current.trim()) wrapped.push(current);
+        }
+        return wrapped;
+      }
+
+      const content = wrapLines(getContent());
       if (content.length === 0 && getVal('content') === 'custom') {
         const msg = document.createElement('p');
         msg.textContent = 'Type words or sentences in the controls panel...';
