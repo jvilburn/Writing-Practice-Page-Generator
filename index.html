@@ -4,9 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Handwriting Worksheet Generator</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Andika&display=swap" rel="stylesheet">
+  <!-- Schoolroom font for print mode -->
+  <style>
+    @font-face {
+      font-family: 'Schoolroom';
+      src: url('Schoolroom.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+  </style>
   <style>
     /* Font Faces */
     @font-face {
@@ -447,12 +453,12 @@
       return group;
     }
 
-    // Stroke guidance data matched to Andika font letterforms
+    // Stroke guidance data matched to Schoolroom font letterforms
     // Coordinates are relative: x in [0, width], y 0=top 1=baseline
     // For uppercase, cap height is at y=0, baseline at y=1
     // For lowercase, x-height at y=0.5 (midline), baseline at y=1, ascenders go to y=0, descenders to y=1.4
     const STROKE_DATA = {
-      // UPPERCASE — Andika has clean, symmetric, rounded letterforms
+      // UPPERCASE — Schoolroom has clean, symmetric, rounded letterforms
    'A': { w: 0.89, strokes: [
         { d: 'M 0.44,0.0 L 0.07,1.0', start: [0.31, 0.05], angle: 110 },
         { d: 'M 0.44,0.0 L 0.82,1.0', start: [0.57, 0.05], angle: 70 },
@@ -736,7 +742,7 @@
     };
 
     function renderStrokeGuidance(group, text, fontSize, writingHeight) {
-      const fontFamily = "'Andika', sans-serif";
+      const fontFamily = "'Schoolroom', sans-serif";
       const svgNS = 'http://www.w3.org/2000/svg';
 
       // Use same ink measurement as addTextToLine for consistent sizing
@@ -765,11 +771,9 @@
 
       const refSize = 500;
       const refO_upper = measureCharInk('O', refSize);
-      const refO_lower = measureCharInk('o', refSize);
-      const fontSizeUpper = writingHeight / refO_upper.above * refSize;
-      const fontSizeLower = (writingHeight * 0.5) / refO_lower.above * refSize * 1.10;
+      const charFontSize = writingHeight / refO_upper.above * refSize;
 
-      // Measure character widths using canvas at the correct per-character font size
+      // Measure character widths using canvas
       function measureWidth(ch, fs) {
         const canvas = document.createElement('canvas');
         canvas.width = 200;
@@ -782,8 +786,6 @@
       let xOffset = 0;
 
       for (const char of text) {
-        const isLower = char >= 'a' && char <= 'z';
-        const charFontSize = isLower ? fontSizeLower : fontSizeUpper;
         const charWidth = measureWidth(char, charFontSize);
 
         const data = STROKE_DATA[char];
@@ -902,7 +904,7 @@
         fontFamily = "'FRBCursive', cursive";
         features = 'font-feature-settings: "calt" 1;';
       } else {
-        fontFamily = "'Andika', sans-serif";
+        fontFamily = "'Schoolroom', sans-serif";
         features = '';
       }
       // Measure actual ink bounds using canvas pixel scanning
@@ -935,12 +937,9 @@
       // Measure at large reference size for precision
       const refSize = 500;
       const refO_upper = measureCharInk('O', refSize);
-      const refO_lower = measureCharInk('o', refSize);
 
-      // Uppercase: 'O' ink height fills writingHeight (baseline to top line)
-      const fontSizeUpper = writingHeight / refO_upper.above * refSize;
-      // Lowercase: 'o' ink height fills midline to baseline (50% of writingHeight)
-      const fontSizeLower = (writingHeight * 0.5) / refO_lower.above * refSize * 1.10;
+      // Single font size: Schoolroom has 50% midline built in
+      const fontSizeAll = writingHeight / refO_upper.above * refSize;
 
       // Single SVG with one <text> element, tspans for per-character font size
       const svgNS = 'http://www.w3.org/2000/svg';
@@ -962,22 +961,13 @@
       textEl.setAttribute('dominant-baseline', 'alphabetic');
       textEl.setAttribute('font-family', fontFamily);
       textEl.setAttribute('fill', color);
+      textEl.setAttribute('font-size', fontSizeAll + 'px');
       if (letterStyle === 'cursive') {
-        // Cursive: single font size, no tspans — preserves letter joining via calt
-        textEl.setAttribute('font-size', (fontSizeUpper * 0.94) + 'px');
         textEl.style.fontFeatureSettings = '"calt" 1';
-        textEl.textContent = text;
       } else {
-        // Print: per-character tspans for upper/lower sizing, ligatures disabled
         textEl.style.fontFeatureSettings = '"liga" 0';
-        for (const ch of text) {
-          const tspan = document.createElementNS(svgNS, 'tspan');
-          tspan.textContent = ch;
-          const isLower = ch >= 'a' && ch <= 'z';
-          tspan.setAttribute('font-size', (isLower ? fontSizeLower : fontSizeUpper) + 'px');
-          textEl.appendChild(tspan);
-        }
       }
+      textEl.textContent = text;
 
       svg.appendChild(textEl);
       group.appendChild(svg);
@@ -993,7 +983,7 @@
       // Slider controls writingHeight (top line to baseline distance).
       // CSS font-size is scaled up so cap height fills that space exactly.
       const writingHeight = parseInt($('#fontSize').value);
-      const printFont = "'Andika', sans-serif";
+      const printFont = "'Schoolroom', sans-serif";
       const metrics = getFontMetrics(printFont, 100); // measure at reference size
       const fontSize = writingHeight / metrics.capHeight;
       // Gap below baseline: descender space + inter-line spacing
@@ -1017,7 +1007,7 @@
         const wrapped = [];
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const fontFamily = letterStyle === 'cursive' ? "'FRBCursive', cursive" : "'Andika', sans-serif";
+        const fontFamily = letterStyle === 'cursive' ? "'FRBCursive', cursive" : "'Schoolroom', sans-serif";
         ctx.font = `${fontSize}px ${fontFamily}`;
         for (const line of lines) {
           const words = line.split(' ');
@@ -1125,9 +1115,14 @@
     updateVisibility();
     updateOrientation();
 
-    // Pre-load cursive font so it's ready when user switches to it
-    document.fonts.load("48px 'FRBCursive'").then(() => {
+    // Ensure all fonts are loaded before first render
+    Promise.all([
+      document.fonts.load("48px 'Schoolroom'"),
+      document.fonts.load("48px 'FRBCursive'"),
+    ]).then(() => {
       document.fonts.ready.then(() => {
+        _cachedMetrics = null;
+        _cachedMetricsKey = '';
         renderPreview();
       });
     });

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head><style>
+@font-face { font-family: "OutfitCombined"; src: url("Outfit-Combined.ttf"); }
+body { margin: 40px; }
+.ruled {
+    position: relative;
+    font-family: "OutfitCombined";
+    font-size: 80px;
+    line-height: 2;
+}
+</style></head><body>
+<div class="ruled" id="text">PLACEHOLDER</div>
+<script>
+document.fonts.ready.then(() => {
+    const el = document.getElementById('text');
+    el.textContent = 'Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz ';
+    
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = '80px OutfitCombined';
+    
+    const mH = ctx.measureText('H');
+    const capAscent = mH.actualBoundingBoxAscent;
+    const ascent = mH.fontBoundingBoxAscent;
+    const descent = mH.fontBoundingBoxDescent;
+    
+    const lineHeight = 160;
+    const halfLeading = (lineHeight - (ascent + descent)) / 2;
+    const baseline = halfLeading + ascent;
+    const topline = baseline - capAscent;
+    const midline = (baseline + topline) / 2;
+    
+    const topPct = (topline / lineHeight * 100).toFixed(2);
+    const midPct = (midline / lineHeight * 100).toFixed(2);
+    const basePct = (baseline / lineHeight * 100).toFixed(2);
+    
+    el.style.backgroundImage = `repeating-linear-gradient(to bottom,
+        transparent,
+        transparent ${topPct}%,
+        blue ${topPct}%,
+        blue calc(${topPct}% + 1.5px),
+        transparent calc(${topPct}% + 1.5px),
+        transparent ${midPct}%,
+        green ${midPct}%,
+        green calc(${midPct}% + 1.5px),
+        transparent calc(${midPct}% + 1.5px),
+        transparent ${basePct}%,
+        red ${basePct}%,
+        red calc(${basePct}% + 1.5px),
+        transparent calc(${basePct}% + 1.5px))`;
+    el.style.backgroundSize = `100% ${lineHeight}px`;
+});
+</script>
+</body></html>
