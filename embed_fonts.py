@@ -6,7 +6,7 @@ def b64_file(path):
     with open(path, 'rb') as f:
         return base64.b64encode(f.read()).decode('ascii')
 
-with open('index.html', 'r', encoding='utf-8') as f:
+with open('index-dev.html', 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Build embedded font-face declarations for all fonts
@@ -38,8 +38,8 @@ for name, (path, fmt) in fonts.items():
         f"url(data:{mime};base64,{data}) format('truetype')"
     )
 
-with open('index-standalone.html', 'w', encoding='utf-8') as f:
+with open('index.html', 'w', encoding='utf-8') as f:
     f.write(content)
 
-size = os.path.getsize('index-standalone.html')
-print(f'Created index-standalone.html ({size/1024/1024:.1f} MB)')
+size = os.path.getsize('index.html')
+print(f'Created index.html ({size/1024/1024:.1f} MB)')
