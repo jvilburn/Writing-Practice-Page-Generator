@@ -12,10 +12,9 @@ with open('index-dev.html', 'r', encoding='utf-8') as f:
 # Build embedded font-face declarations for all fonts
 fonts = {
     'Schoolroom': ('Schoolroom.ttf', 'truetype'),
+    'SchoolroomGuidance': ('SchoolroomGuidance.ttf', 'truetype'),
     'FRBCursive': ('fonts/FRBAmericanCursive-400-Regular.woff2', 'woff2'),
-    'FRBCursiveDotted': ('fonts/FRBAmericanCursive-400-Dotted.woff2', 'woff2'),
-    'FRBCursiveArrow': ('fonts/FRBAmericanCursive-400-ArrowPath.woff2', 'woff2'),
-    'FRBCursiveGuideDotted': ('fonts/FRBAmericanCursive-400-GuidelinesArrowsDottedRegular.woff2', 'woff2'),
+    'FRBCursiveArrow': ('fonts/FRBAmericanCursive-400-GuidelinesArrowsRegular.woff2', 'woff2'),
 }
 
 # Replace each font-face that references an external file with an embedded version

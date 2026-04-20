@@ -2,36 +2,39 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Stroke Arrow Editor</title>
+<title>Stroke Guidance Editor</title>
 <style>
   @font-face {
-    font-family: 'Andika';
-    src: url('Andika-Regular.ttf') format('truetype');
+    font-family: 'Schoolroom';
+    src: url('Schoolroom.ttf') format('truetype');
+  }
+  @font-face {
+    font-family: 'SchoolroomGuidance';
+    src: url('SchoolroomGuidance.ttf') format('truetype');
   }
   body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
   .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; flex-wrap: wrap; }
   .controls button { padding: 6px 14px; cursor: pointer; }
-  .controls select, .controls input { padding: 4px 8px; }
   .char-btn { width: 36px; height: 36px; font-size: 18px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
   .char-btn.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
   .char-btn.modified { border-color: #e67e22; border-width: 2px; }
   #canvas-wrap { position: relative; display: inline-block; border: 1px solid #999; background: #fff; }
   canvas { display: block; }
-  #overlay { position: absolute; top: 0; left: 0; cursor: crosshair; }
+  #overlay { position: absolute; top: 0; left: 0; cursor: default; }
   .info { margin-top: 10px; font-size: 13px; color: #555; }
-  #output { width: 100%; height: 300px; font-family: monospace; font-size: 12px; margin-top: 10px; }
   .letter-grid { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 10px; }
   .section-label { font-weight: bold; margin: 8px 0 4px; }
   #status { color: #27ae60; font-weight: bold; margin-left: 10px; }
   .stroke-info { margin-top: 10px; font-size: 13px; }
-  .stroke-info .stroke-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-  .stroke-row .color-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-  .angle-input { width: 60px; }
+  .stroke-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
 </style>
 </head>
 <body>
-<h2>Stroke Arrow Editor</h2>
-<p class="info">Click a letter, then drag the numbered circles to reposition stroke start points. Adjust angles with the inputs below. Orange-bordered letters have been modified.</p>
+<h2>Stroke Guidance Editor</h2>
+<p class="info">
+  Click a sub-glyph to select it (arrow or number). Drag the body to translate.
+  Drag the rotation handle (small circle) to rotate. Hit Save to write back to the font.
+</p>
 
 <div class="section-label">Uppercase</div>
 <div class="letter-grid" id="upper-grid"></div>
@@ -39,10 +42,9 @@
 <div class="letter-grid" id="lower-grid"></div>
 
 <div class="controls">
-  <span>Scale: <input type="range" id="scale" min="1" max="6" step="0.5" value="3"> <span id="scale-val">3</span>x</span>
-  <button id="export-btn">Export All Modified</button>
-  <button id="export-all-btn">Export All</button>
-  <button id="reset-btn">Reset Current Letter</button>
+  <span>Scale: <input type="range" id="scale" min="0.5" max="3" step="0.25" value="1"> <span id="scale-val">1</span>x</span>
+  <button id="save-btn" style="background:#2ecc71;color:#fff;font-weight:bold">Save to Font</button>
+  <button id="reload-btn">Reload from Font</button>
   <span id="status"></span>
 </div>
 
@@ -53,263 +55,58 @@
 
 <div class="stroke-info" id="stroke-info"></div>
 
-<textarea id="output" placeholder="Exported data will appear here..."></textarea>
-
 <script>
-// Original stroke data (copy from index.html)
-const ORIGINAL_STROKE_DATA = {
-  'A': { w: 0.89, strokes: [
-    { d: 'M 0.44,0.0 L 0.07,1.0', start: [0.44, 0.0], angle: 110 },
-    { d: 'M 0.44,0.0 L 0.82,1.0', start: [0.44, 0.0], angle: 70 },
-    { d: 'M 0.19,0.68 L 0.7,0.68', start: [0.19, 0.68], angle: 0 },
-  ]},
-  'B': { w: 0.67, strokes: [
-    { d: 'M 0.07,0 L 0.07,1', start: [0.07, 0], angle: 90 },
-    { d: 'M 0.07,0 C 0.56,0 0.56,0.45 0.07,0.45', start: [0.07, 0], angle: 0 },
-    { d: 'M 0.07,0.45 C 0.61,0.45 0.61,1.0 0.07,1.0', start: [0.07, 0.45], angle: 0 },
-  ]},
-  'C': { w: 0.62, strokes: [
-    { d: 'M 0.56,0.12 C 0.46,0.02 0.30,0 0.20,0.05 C 0.08,0.15 0.05,0.35 0.05,0.50 C 0.05,0.70 0.10,0.88 0.22,0.96 C 0.32,1.00 0.46,0.98 0.56,0.88', start: [0.56, 0.12], angle: 200 },
-  ]},
-  'D': { w: 0.62, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.08,0 L 0.28,0 C 0.52,0 0.58,0.20 0.58,0.50 C 0.58,0.80 0.52,1 0.28,1 L 0.08,1', start: [0.08, 0], angle: 0 },
-  ]},
-  'E': { w: 0.55, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.08,0 L 0.50,0', start: [0.08, 0], angle: 0 },
-    { d: 'M 0.08,0.50 L 0.42,0.50', start: [0.08, 0.50], angle: 0 },
-    { d: 'M 0.08,1 L 0.50,1', start: [0.08, 1], angle: 0 },
-  ]},
-  'F': { w: 0.52, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.08,0 L 0.48,0', start: [0.08, 0], angle: 0 },
-    { d: 'M 0.08,0.50 L 0.38,0.50', start: [0.08, 0.50], angle: 0 },
-  ]},
-  'G': { w: 0.66, strokes: [
-    { d: 'M 0.56,0.12 C 0.46,0.02 0.30,0 0.20,0.05 C 0.08,0.15 0.05,0.35 0.05,0.50 C 0.05,0.70 0.10,0.88 0.22,0.96 C 0.32,1.00 0.46,0.98 0.56,0.88', start: [0.56, 0.12], angle: 200 },
-    { d: 'M 0.56,0.50 L 0.56,0.88', start: [0.56, 0.50], angle: 90 },
-  ]},
-  'H': { w: 0.64, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.56,0 L 0.56,1', start: [0.56, 0], angle: 90 },
-    { d: 'M 0.08,0.50 L 0.56,0.50', start: [0.08, 0.50], angle: 0 },
-  ]},
-  'I': { w: 0.28, strokes: [
-    { d: 'M 0.14,0 L 0.14,1', start: [0.14, 0], angle: 90 },
-  ]},
-  'J': { w: 0.48, strokes: [
-    { d: 'M 0.36,0 L 0.36,0.78 C 0.36,0.96 0.22,1.02 0.10,0.92', start: [0.36, 0], angle: 90 },
-  ]},
-  'K': { w: 0.60, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.54,0 L 0.08,0.52', start: [0.54, 0], angle: 135 },
-    { d: 'M 0.08,0.52 L 0.56,1', start: [0.08, 0.52], angle: 45 },
-  ]},
-  'L': { w: 0.52, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.08,1 L 0.48,1', start: [0.08, 1], angle: 0 },
-  ]},
-  'M': { w: 0.78, strokes: [
-    { d: 'M 0.08,1 L 0.08,0', start: [0.08, 1], angle: -90 },
-    { d: 'M 0.08,0 L 0.39,0.65', start: [0.08, 0], angle: 65 },
-    { d: 'M 0.39,0.65 L 0.70,0', start: [0.39, 0.65], angle: -65 },
-    { d: 'M 0.70,0 L 0.70,1', start: [0.70, 0], angle: 90 },
-  ]},
-  'N': { w: 0.64, strokes: [
-    { d: 'M 0.08,1 L 0.08,0', start: [0.08, 1], angle: -90 },
-    { d: 'M 0.08,0 L 0.56,1', start: [0.08, 0], angle: 65 },
-    { d: 'M 0.56,1 L 0.56,0', start: [0.56, 1], angle: -90 },
-  ]},
-  'O': { w: 0.68, strokes: [
-    { d: 'M 0.34,0 C 0.10,0 0.05,0.25 0.05,0.50 C 0.05,0.75 0.10,1 0.34,1 C 0.58,1 0.63,0.75 0.63,0.50 C 0.63,0.25 0.58,0 0.34,0', start: [0.34, 0], angle: 180 },
-  ]},
-  'P': { w: 0.58, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.08,0 L 0.30,0 C 0.52,0 0.54,0.22 0.54,0.25 C 0.54,0.40 0.44,0.52 0.30,0.52 L 0.08,0.52', start: [0.08, 0], angle: 0 },
-  ]},
-  'Q': { w: 0.68, strokes: [
-    { d: 'M 0.34,0 C 0.10,0 0.05,0.25 0.05,0.50 C 0.05,0.75 0.10,1 0.34,1 C 0.58,1 0.63,0.75 0.63,0.50 C 0.63,0.25 0.58,0 0.34,0', start: [0.34, 0], angle: 180 },
-    { d: 'M 0.42,0.78 L 0.60,1.05', start: [0.42, 0.78], angle: 35 },
-  ]},
-  'R': { w: 0.60, strokes: [
-    { d: 'M 0.08,0 L 0.08,1', start: [0.08, 0], angle: 90 },
-    { d: 'M 0.08,0 L 0.30,0 C 0.52,0 0.52,0.22 0.52,0.25 C 0.52,0.40 0.42,0.52 0.30,0.52 L 0.08,0.52', start: [0.08, 0], angle: 0 },
-    { d: 'M 0.32,0.52 L 0.56,1', start: [0.32, 0.52], angle: 45 },
-  ]},
-  'S': { w: 0.54, strokes: [
-    { d: 'M 0.44,0.10 C 0.36,0.02 0.18,0 0.10,0.10 C 0.05,0.18 0.05,0.30 0.12,0.40 C 0.20,0.48 0.34,0.52 0.40,0.60 C 0.48,0.70 0.48,0.82 0.42,0.92 C 0.36,1.00 0.18,1.02 0.08,0.90', start: [0.44, 0.10], angle: 200 },
-  ]},
-  'T': { w: 0.58, strokes: [
-    { d: 'M 0.29,0 L 0.29,1', start: [0.29, 0], angle: 90 },
-    { d: 'M 0.02,0 L 0.56,0', start: [0.02, 0], angle: 0 },
-  ]},
-  'U': { w: 0.64, strokes: [
-    { d: 'M 0.08,0 L 0.08,0.72 C 0.08,0.92 0.22,1.02 0.32,1.02 C 0.42,1.02 0.56,0.92 0.56,0.72 L 0.56,0', start: [0.08, 0], angle: 90 },
-  ]},
-  'V': { w: 0.64, strokes: [
-    { d: 'M 0.02,0 L 0.32,1', start: [0.02, 0], angle: 75 },
-    { d: 'M 0.62,0 L 0.32,1', start: [0.62, 0], angle: 105 },
-  ]},
-  'W': { w: 0.84, strokes: [
-    { d: 'M 0.02,0 L 0.20,1', start: [0.02, 0], angle: 80 },
-    { d: 'M 0.20,1 L 0.42,0.35', start: [0.20, 1], angle: -70 },
-    { d: 'M 0.42,0.35 L 0.62,1', start: [0.42, 0.35], angle: 70 },
-    { d: 'M 0.62,1 L 0.82,0', start: [0.62, 1], angle: -80 },
-  ]},
-  'X': { w: 0.60, strokes: [
-    { d: 'M 0.06,0 L 0.54,1', start: [0.06, 0], angle: 60 },
-    { d: 'M 0.54,0 L 0.06,1', start: [0.54, 0], angle: 120 },
-  ]},
-  'Y': { w: 0.60, strokes: [
-    { d: 'M 0.02,0 L 0.30,0.48', start: [0.02, 0], angle: 65 },
-    { d: 'M 0.58,0 L 0.30,0.48', start: [0.58, 0], angle: 115 },
-    { d: 'M 0.30,0.48 L 0.30,1', start: [0.30, 0.48], angle: 90 },
-  ]},
-  'Z': { w: 0.56, strokes: [
-    { d: 'M 0.06,0 L 0.50,0', start: [0.06, 0], angle: 0 },
-    { d: 'M 0.50,0 L 0.06,1', start: [0.50, 0], angle: 120 },
-    { d: 'M 0.06,1 L 0.50,1', start: [0.06, 1], angle: 0 },
-  ]},
-  'a': { w: 0.52, strokes: [
-    { d: 'M 0.42,0.50 C 0.38,0.46 0.26,0.44 0.18,0.50 C 0.08,0.58 0.08,0.75 0.18,0.90 C 0.26,0.98 0.38,0.98 0.42,0.92', start: [0.42, 0.50], angle: 180 },
-    { d: 'M 0.42,0.50 L 0.42,1', start: [0.42, 0.50], angle: 90 },
-  ]},
-  'b': { w: 0.54, strokes: [
-    { d: 'M 0.10,0 L 0.10,1', start: [0.10, 0], angle: 90 },
-    { d: 'M 0.10,0.58 C 0.18,0.48 0.32,0.46 0.40,0.54 C 0.48,0.62 0.48,0.82 0.40,0.92 C 0.32,0.98 0.18,0.98 0.10,0.90', start: [0.10, 0.58], angle: 0 },
-  ]},
-  'c': { w: 0.46, strokes: [
-    { d: 'M 0.40,0.56 C 0.34,0.48 0.20,0.46 0.12,0.54 C 0.06,0.64 0.06,0.82 0.12,0.92 C 0.20,0.98 0.34,0.98 0.40,0.90', start: [0.40, 0.56], angle: 200 },
-  ]},
-  'd': { w: 0.54, strokes: [
-    { d: 'M 0.42,0.50 C 0.38,0.46 0.26,0.44 0.18,0.50 C 0.08,0.58 0.08,0.75 0.18,0.90 C 0.26,0.98 0.38,0.98 0.42,0.92', start: [0.42, 0.50], angle: 180 },
-    { d: 'M 0.42,0 L 0.42,1', start: [0.42, 0], angle: 90 },
-  ]},
-  'e': { w: 0.50, strokes: [
-    { d: 'M 0.08,0.72 L 0.42,0.72 C 0.42,0.56 0.32,0.46 0.22,0.46 C 0.10,0.46 0.06,0.60 0.06,0.75 C 0.06,0.90 0.14,1.00 0.26,1.00 C 0.36,1.00 0.42,0.94 0.42,0.90', start: [0.08, 0.72], angle: 0 },
-  ]},
-  'f': { w: 0.46, strokes: [
-    { d: 'M 0.34,0.08 C 0.30,0 0.18,0 0.18,0.10 L 0.18,1', start: [0.34, 0.08], angle: 200 },
-    { d: 'M 0.06,0.50 L 0.34,0.50', start: [0.06, 0.50], angle: 0 },
-  ]},
-  'g': { w: 0.54, strokes: [
-    { d: 'M 0.42,0.50 C 0.38,0.46 0.26,0.44 0.18,0.50 C 0.08,0.58 0.08,0.75 0.18,0.90 C 0.26,0.98 0.38,0.98 0.42,0.92', start: [0.42, 0.50], angle: 180 },
-    { d: 'M 0.42,0.50 L 0.42,1.24 C 0.42,1.36 0.26,1.42 0.10,1.34', start: [0.42, 0.50], angle: 90 },
-  ]},
-  'h': { w: 0.52, strokes: [
-    { d: 'M 0.10,0 L 0.10,1', start: [0.10, 0], angle: 90 },
-    { d: 'M 0.10,0.54 C 0.18,0.46 0.32,0.44 0.42,0.54 L 0.42,1', start: [0.10, 0.54], angle: 0 },
-  ]},
-  'i': { w: 0.24, strokes: [
-    { d: 'M 0.12,0.50 L 0.12,1', start: [0.12, 0.50], angle: 90 },
-    { d: 'M 0.12,0.30 L 0.12,0.33', start: [0.12, 0.30], angle: 90 },
-  ]},
-  'j': { w: 0.24, strokes: [
-    { d: 'M 0.14,0.50 L 0.14,1.24 C 0.14,1.36 0.04,1.40 -0.04,1.34', start: [0.14, 0.50], angle: 90 },
-    { d: 'M 0.14,0.30 L 0.14,0.33', start: [0.14, 0.30], angle: 90 },
-  ]},
-  'k': { w: 0.48, strokes: [
-    { d: 'M 0.10,0 L 0.10,1', start: [0.10, 0], angle: 90 },
-    { d: 'M 0.42,0.50 L 0.10,0.75', start: [0.42, 0.50], angle: 135 },
-    { d: 'M 0.10,0.75 L 0.44,1', start: [0.10, 0.75], angle: 40 },
-  ]},
-  'l': { w: 0.22, strokes: [
-    { d: 'M 0.11,0 L 0.11,1', start: [0.11, 0], angle: 90 },
-  ]},
-  'm': { w: 0.80, strokes: [
-    { d: 'M 0.08,0.50 L 0.08,1', start: [0.08, 0.50], angle: 90 },
-    { d: 'M 0.08,0.54 C 0.16,0.46 0.28,0.44 0.34,0.54 L 0.34,1', start: [0.08, 0.54], angle: 0 },
-    { d: 'M 0.34,0.54 C 0.42,0.46 0.54,0.44 0.60,0.54 L 0.60,1', start: [0.34, 0.54], angle: 0 },
-  ]},
-  'n': { w: 0.52, strokes: [
-    { d: 'M 0.10,0.50 L 0.10,1', start: [0.10, 0.50], angle: 90 },
-    { d: 'M 0.10,0.54 C 0.18,0.46 0.32,0.44 0.42,0.54 L 0.42,1', start: [0.10, 0.54], angle: 0 },
-  ]},
-  'o': { w: 0.54, strokes: [
-    { d: 'M 0.27,0.46 C 0.12,0.46 0.06,0.62 0.06,0.75 C 0.06,0.88 0.12,1.00 0.27,1.00 C 0.42,1.00 0.48,0.88 0.48,0.75 C 0.48,0.62 0.42,0.46 0.27,0.46', start: [0.27, 0.46], angle: 180 },
-  ]},
-  'p': { w: 0.54, strokes: [
-    { d: 'M 0.10,0.50 L 0.10,1.40', start: [0.10, 0.50], angle: 90 },
-    { d: 'M 0.10,0.58 C 0.18,0.48 0.32,0.46 0.40,0.54 C 0.48,0.62 0.48,0.82 0.40,0.92 C 0.32,0.98 0.18,0.98 0.10,0.90', start: [0.10, 0.58], angle: 0 },
-  ]},
-  'q': { w: 0.54, strokes: [
-    { d: 'M 0.42,0.50 C 0.38,0.46 0.26,0.44 0.18,0.50 C 0.08,0.58 0.08,0.75 0.18,0.90 C 0.26,0.98 0.38,0.98 0.42,0.92', start: [0.42, 0.50], angle: 180 },
-    { d: 'M 0.42,0.50 L 0.42,1.40', start: [0.42, 0.50], angle: 90 },
-  ]},
-  'r': { w: 0.36, strokes: [
-    { d: 'M 0.10,0.50 L 0.10,1', start: [0.10, 0.50], angle: 90 },
-    { d: 'M 0.10,0.62 C 0.16,0.50 0.26,0.46 0.34,0.50', start: [0.10, 0.62], angle: -30 },
-  ]},
-  's': { w: 0.42, strokes: [
-    { d: 'M 0.34,0.54 C 0.28,0.46 0.14,0.44 0.10,0.54 C 0.06,0.62 0.12,0.70 0.22,0.74 C 0.32,0.78 0.38,0.84 0.36,0.92 C 0.34,1.00 0.18,1.02 0.08,0.94', start: [0.34, 0.54], angle: 200 },
-  ]},
-  't': { w: 0.36, strokes: [
-    { d: 'M 0.16,0.20 L 0.16,0.85 C 0.16,0.98 0.24,1.02 0.32,0.96', start: [0.16, 0.20], angle: 90 },
-    { d: 'M 0.04,0.50 L 0.30,0.50', start: [0.04, 0.50], angle: 0 },
-  ]},
-  'u': { w: 0.52, strokes: [
-    { d: 'M 0.10,0.50 L 0.10,0.82 C 0.10,0.96 0.22,1.02 0.42,0.92', start: [0.10, 0.50], angle: 90 },
-    { d: 'M 0.42,0.50 L 0.42,1', start: [0.42, 0.50], angle: 90 },
-  ]},
-  'v': { w: 0.48, strokes: [
-    { d: 'M 0.04,0.50 L 0.24,1', start: [0.04, 0.50], angle: 75 },
-    { d: 'M 0.44,0.50 L 0.24,1', start: [0.44, 0.50], angle: 105 },
-  ]},
-  'w': { w: 0.70, strokes: [
-    { d: 'M 0.04,0.50 L 0.16,1', start: [0.04, 0.50], angle: 80 },
-    { d: 'M 0.16,1 L 0.32,0.60', start: [0.16, 1], angle: -70 },
-    { d: 'M 0.32,0.60 L 0.48,1', start: [0.32, 0.60], angle: 70 },
-    { d: 'M 0.48,1 L 0.62,0.50', start: [0.48, 1], angle: -80 },
-  ]},
-  'x': { w: 0.48, strokes: [
-    { d: 'M 0.06,0.50 L 0.42,1', start: [0.06, 0.50], angle: 60 },
-    { d: 'M 0.42,0.50 L 0.06,1', start: [0.42, 0.50], angle: 120 },
-  ]},
-  'y': { w: 0.48, strokes: [
-    { d: 'M 0.06,0.50 L 0.24,1', start: [0.06, 0.50], angle: 75 },
-    { d: 'M 0.42,0.50 L 0.16,1.24 C 0.10,1.36 0.04,1.38 -0.02,1.34', start: [0.42, 0.50], angle: 105 },
-  ]},
-  'z': { w: 0.44, strokes: [
-    { d: 'M 0.06,0.50 L 0.38,0.50', start: [0.06, 0.50], angle: 0 },
-    { d: 'M 0.38,0.50 L 0.06,1', start: [0.38, 0.50], angle: 120 },
-    { d: 'M 0.06,1 L 0.38,1', start: [0.06, 1], angle: 0 },
-  ]},
-};
+// Editor state
+let currentChar = 'A';
+let scale = 1;
+let fontData = null;  // { cap, glyphs: {charName: {advance, layers: [{name, contours: [[{x,y,on}]], transform: {dx,dy,rot}}]}} }
+let modified = new Set();
+let selectedLayer = -1;  // index into current char's layers (excluding base)
+let drag = null;  // { type: 'translate'|'rotate', startX, startY, origTransform }
 
-// Deep clone for working copy
-function cloneData(data) {
-  const out = {};
-  for (const [ch, val] of Object.entries(data)) {
-    out[ch] = {
-      w: val.w,
-      strokes: val.strokes.map(s => ({
-        d: s.d,
-        start: [...s.start],
-        angle: s.angle,
-      }))
-    };
-  }
-  return out;
+// Canvas constants
+const CAP = 688;  // will be overwritten by font data
+const PAD = 60;
+const VISIBLE_TOP = -180;   // font units above baseline we show
+const VISIBLE_BOTTOM = 900; // font units below baseline we show
+
+function fontToPixel(x, y) {
+  // Font y goes up, screen y goes down. Scale by `scale`.
+  // Visible range: x=[0, advance], y in font=[VISIBLE_BOTTOM_fontY .. VISIBLE_TOP_fontY]
+  // We want y=VISIBLE_TOP (in code units; in FONT units that means cap*something) at top of canvas
+  const px = x * scale + PAD;
+  // Font y: 0=baseline, cap=cap top. Canvas y: 0=top, grows down.
+  // Let canvas_y for font_y = (VISIBLE_TOP - font_y) * scale + PAD
+  const py = (fontTop() - y) * scale + PAD;
+  return [px, py];
 }
 
-const strokeData = cloneData(ORIGINAL_STROKE_DATA);
-const modified = new Set();
-const STROKE_COLORS = ['#e74c3c', '#2ecc71', '#3498db', '#f39c12', '#9b59b6', '#1abc9c'];
+function pixelToFont(px, py) {
+  return [(px - PAD) / scale, fontTop() - (py - PAD) / scale];
+}
 
-let currentChar = 'A';
-let dragging = null; // { strokeIdx }
-let scale = 3;
+function fontTop() {
+  // top of canvas in font y-coords (above cap height)
+  return (fontData ? fontData.cap : CAP) + 200;
+}
+function fontBottom() {
+  return -400;
+}
 
-const bgCanvas = document.getElementById('bg');
-const overlay = document.getElementById('overlay');
-const bgCtx = bgCanvas.getContext('2d');
-const olCtx = overlay.getContext('2d');
+async function loadFont() {
+  const res = await fetch('/font-data');
+  if (!res.ok) throw new Error('Failed to fetch font data');
+  fontData = await res.json();
+  console.log('Loaded font data', fontData);
+  buildGrid();
+  selectChar('A');
+}
 
-// Build letter grid
 function buildGrid() {
   const upperGrid = document.getElementById('upper-grid');
   const lowerGrid = document.getElementById('lower-grid');
+  upperGrid.innerHTML = '';
+  lowerGrid.innerHTML = '';
   for (let i = 65; i <= 90; i++) {
     const ch = String.fromCharCode(i);
     const btn = document.createElement('button');
@@ -328,10 +125,12 @@ function buildGrid() {
     btn.onclick = () => selectChar(ch);
     lowerGrid.appendChild(btn);
   }
+  updateButtonStyles();
 }
 
 function selectChar(ch) {
   currentChar = ch;
+  selectedLayer = -1;
   document.querySelectorAll('.char-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.char === ch);
   });
@@ -345,312 +144,341 @@ function updateButtonStyles() {
   });
 }
 
-function getCanvasSize() {
-  const data = strokeData[currentChar];
-  if (!data) return { w: 200, h: 300 };
-  const isLower = currentChar >= 'a' && currentChar <= 'z';
-  // Coordinate space: x in [0, data.w], y in [0, 1] for upper, [0, ~1.4] for lower
-  const yMax = isLower ? 1.5 : 1.1;
-  const baseUnit = 200; // pixels per 1.0 in coordinate space
-  const s = baseUnit * scale;
-  return { w: Math.ceil(data.w * s * 2) + 80, h: Math.ceil(yMax * s) + 40, s, yMax };
+function getCurrentGlyph() {
+  return fontData.glyphs[currentChar];
 }
 
-// charPixelWidth = advance width of the char at computed fontSize
-// data.w = normalized advance width from STROKE_DATA
-// index.html uses: scaleX = charPixelWidth / data.w
-// So coord x maps to: x * charPixelWidth / data.w
-let renderScaleX = 1; // set during render()
-
-function coordToPixel(x, y, s) {
-  return [x * renderScaleX + 20, y * s + 20];
+function applyTransform(pt, tf) {
+  if (!tf) return pt;
+  const rad = (tf.rot || 0) * Math.PI / 180;
+  const cx = tf.cx || 0, cy = tf.cy || 0;
+  const x = pt.x - cx, y = pt.y - cy;
+  const rx = x * Math.cos(rad) - y * Math.sin(rad) + cx + (tf.dx || 0);
+  const ry = x * Math.sin(rad) + y * Math.cos(rad) + cy + (tf.dy || 0);
+  return { x: rx, y: ry };
 }
 
-function pixelToCoord(px, py, s) {
-  return [(px - 20) / renderScaleX, (py - 20) / s];
+function layerCentroid(layer) {
+  // Centroid of all points across all contours
+  let sx = 0, sy = 0, n = 0;
+  for (const c of layer.contours) {
+    for (const p of c) {
+      sx += p.x; sy += p.y; n++;
+    }
+  }
+  return n > 0 ? { x: sx/n, y: sy/n } : { x: 0, y: 0 };
 }
 
 function render() {
-  const { w, h, s, yMax } = getCanvasSize();
-  bgCanvas.width = overlay.width = w;
-  bgCanvas.height = overlay.height = h;
+  const bg = document.getElementById('bg');
+  const overlay = document.getElementById('overlay');
+  const g = getCurrentGlyph();
+  if (!g) return;
 
-  const data = strokeData[currentChar];
-  if (!data) return;
+  const width = Math.ceil(g.advance * scale) + PAD * 2;
+  const height = Math.ceil((fontTop() - fontBottom()) * scale) + PAD;
+  bg.width = overlay.width = width;
+  bg.height = overlay.height = height;
 
-  const isLower = currentChar >= 'a' && currentChar <= 'z';
+  const bgCtx = bg.getContext('2d');
+  const ol = overlay.getContext('2d');
 
-  // Draw background: writing lines
-  bgCtx.clearRect(0, 0, w, h);
+  bgCtx.clearRect(0, 0, width, height);
 
-  // Top line (y=0)
+  // Writing lines
+  const [_, baseY] = fontToPixel(0, 0);
+  const [__, capY] = fontToPixel(0, fontData.cap);
+  const [___, midY] = fontToPixel(0, fontData.cap * 0.5);
+  const [____, descY] = fontToPixel(0, -fontData.cap * 0.4);
+
   bgCtx.strokeStyle = '#ccc';
   bgCtx.lineWidth = 1;
-  const [, topY] = coordToPixel(0, 0, s);
-  bgCtx.beginPath(); bgCtx.moveTo(0, topY); bgCtx.lineTo(w, topY); bgCtx.stroke();
-
-  // Midline (y=0.5)
-  bgCtx.strokeStyle = '#ddd';
-  bgCtx.setLineDash([4, 4]);
-  const [, midY] = coordToPixel(0, 0.5, s);
-  bgCtx.beginPath(); bgCtx.moveTo(0, midY); bgCtx.lineTo(w, midY); bgCtx.stroke();
+  bgCtx.beginPath(); bgCtx.moveTo(0, capY); bgCtx.lineTo(width, capY); bgCtx.stroke();
+  bgCtx.setLineDash([4,4]);
+  bgCtx.beginPath(); bgCtx.moveTo(0, midY); bgCtx.lineTo(width, midY); bgCtx.stroke();
   bgCtx.setLineDash([]);
-
-  // Baseline (y=1)
-  bgCtx.strokeStyle = '#ccc';
   bgCtx.lineWidth = 2;
-  const [, baseY] = coordToPixel(0, 1.0, s);
-  bgCtx.beginPath(); bgCtx.moveTo(0, baseY); bgCtx.lineTo(w, baseY); bgCtx.stroke();
+  bgCtx.beginPath(); bgCtx.moveTo(0, baseY); bgCtx.lineTo(width, baseY); bgCtx.stroke();
+  bgCtx.lineWidth = 1;
+  bgCtx.strokeStyle = '#eee';
+  bgCtx.beginPath(); bgCtx.moveTo(0, descY); bgCtx.lineTo(width, descY); bgCtx.stroke();
 
-  // Descender line (y=1.4) for lowercase
-  if (isLower) {
-    bgCtx.strokeStyle = '#eee';
-    bgCtx.lineWidth = 1;
-    const [, descY] = coordToPixel(0, 1.4, s);
-    bgCtx.beginPath(); bgCtx.moveTo(0, descY); bgCtx.lineTo(w, descY); bgCtx.stroke();
-  }
+  // Draw each layer
+  ol.clearRect(0, 0, width, height);
+  g.layers.forEach((layer, idx) => {
+    const isBase = idx === 0;
+    const isSelected = (selectedLayer === idx - 1);
+    ol.fillStyle = isBase ? 'rgba(0,0,0,0.15)' : (isSelected ? 'rgba(230,80,80,0.9)' : 'rgba(230,80,80,0.6)');
+    drawLayer(ol, layer);
 
-  // Draw the actual letter using Andika, sized to match index.html's coordinate system
-  // Measure cap height and x-height at a reference size, then scale so they fill the grid
-  bgCtx.fillStyle = 'rgba(0,0,0,0.15)';
-  const refFS = 500;
-  const fontFam = "'Andika', sans-serif";
-
-  function measureInk(ch, fs) {
-    const c = document.createElement('canvas');
-    const pad = Math.ceil(fs * 1.5);
-    c.width = pad * 2; c.height = pad * 2;
-    const cx2 = c.getContext('2d');
-    cx2.font = `${fs}px ${fontFam}`;
-    cx2.textBaseline = 'alphabetic';
-    cx2.fillText(ch, 10, pad);
-    const d = cx2.getImageData(0, 0, c.width, c.height).data;
-    let top = c.height, bot = 0;
-    for (let y2 = 0; y2 < c.height; y2++)
-      for (let x2 = 0; x2 < c.width; x2++)
-        if (d[(y2 * c.width + x2) * 4 + 3] > 20) { if (y2 < top) top = y2; if (y2 > bot) bot = y2; }
-    return { above: pad - top, below: bot - pad };
-  }
-
-  // In the coord system, y=0..1 = cap height region (s pixels on screen)
-  // For uppercase: size font so cap height ('O') = s pixels
-  // For lowercase: size font so x-height ('o') = 0.5 * s pixels (midline to baseline)
-  const capInk = measureInk('O', refFS);
-  const xInk = measureInk('o', refFS);
-  let fontSize;
-  if (isLower) {
-    fontSize = (0.5 * s) / xInk.above * refFS * 1.10; // match index.html's 1.10 factor
-  } else {
-    fontSize = s / capInk.above * refFS;
-  }
-  bgCtx.font = `${fontSize}px ${fontFam}`;
-  bgCtx.textBaseline = 'alphabetic';
-  // Measure advance width at this fontSize to compute scaleX matching index.html
-  const charAdvanceWidth = bgCtx.measureText(currentChar).width;
-  renderScaleX = charAdvanceWidth / data.w;
-  bgCtx.fillText(currentChar, 20, baseY);
-
-  // Draw strokes
-  olCtx.clearRect(0, 0, w, h);
-  data.strokes.forEach((stroke, idx) => {
-    const color = STROKE_COLORS[idx % STROKE_COLORS.length];
-    const [cx, cy] = coordToPixel(stroke.start[0], stroke.start[1], s);
-    const r = Math.max(8, s * 0.04);
-
-    // Draw arrow
-    const rad = stroke.angle * Math.PI / 180;
-    const arrowLen = Math.max(16, s * 0.12);
-    const ax = cx + Math.cos(rad) * (r + arrowLen);
-    const ay = cy + Math.sin(rad) * (r + arrowLen);
-    const headLen = arrowLen * 0.45;
-
-    // Arrow shaft
-    olCtx.strokeStyle = color;
-    olCtx.lineWidth = Math.max(2, s * 0.015);
-    olCtx.beginPath();
-    olCtx.moveTo(cx + Math.cos(rad) * r, cy + Math.sin(rad) * r);
-    olCtx.lineTo(ax, ay);
-    olCtx.stroke();
-
-    // Arrowhead
-    olCtx.fillStyle = color;
-    olCtx.beginPath();
-    const backAngle = Math.PI * 0.82;
-    olCtx.moveTo(ax, ay);
-    olCtx.lineTo(ax + Math.cos(rad + backAngle) * headLen, ay + Math.sin(rad + backAngle) * headLen);
-    olCtx.lineTo(ax + Math.cos(rad - backAngle) * headLen, ay + Math.sin(rad - backAngle) * headLen);
-    olCtx.closePath();
-    olCtx.fill();
-
-    // Circle
-    olCtx.fillStyle = color;
-    olCtx.beginPath();
-    olCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    olCtx.fill();
-
-    // Number
-    olCtx.fillStyle = '#fff';
-    olCtx.font = `bold ${Math.max(8, r * 1.2)}px Arial`;
-    olCtx.textAlign = 'center';
-    olCtx.textBaseline = 'middle';
-    olCtx.fillText(idx + 1, cx, cy);
+    if (!isBase && isSelected) {
+      drawHandles(ol, layer);
+    }
   });
+
+  // Advance width marker
+  const [advX, _advY] = fontToPixel(g.advance, 0);
+  bgCtx.strokeStyle = '#bbb';
+  bgCtx.lineWidth = 1;
+  bgCtx.beginPath();
+  bgCtx.moveTo(advX, 0);
+  bgCtx.lineTo(advX, height);
+  bgCtx.stroke();
+}
+
+function drawLayer(ctx, layer) {
+  ctx.beginPath();
+  for (const contour of layer.contours) {
+    if (contour.length === 0) continue;
+    const tp = applyTransform(contour[0], layer.transform);
+    let [px, py] = fontToPixel(tp.x, tp.y);
+    ctx.moveTo(px, py);
+    for (let i = 1; i < contour.length; i++) {
+      const t = applyTransform(contour[i], layer.transform);
+      [px, py] = fontToPixel(t.x, t.y);
+      ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+  ctx.fill('evenodd');
+}
+
+function drawHandles(ctx, layer) {
+  const c = layerCentroid(layer);
+  const tc = {
+    x: c.x + (layer.transform.dx || 0),
+    y: c.y + (layer.transform.dy || 0),
+  };
+  const [cx, cy] = fontToPixel(tc.x, tc.y);
+
+  // Translate handle (square at centroid)
+  ctx.fillStyle = '#3498db';
+  ctx.fillRect(cx - 6, cy - 6, 12, 12);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cx - 6, cy - 6, 12, 12);
+
+  // Rotation handle: 40px above centroid along the current rotation direction
+  const rad = (layer.transform.rot || 0) * Math.PI / 180;
+  const dist = 45;
+  const hx = cx + Math.sin(rad) * dist;
+  const hy = cy - Math.cos(rad) * dist;
+
+  ctx.strokeStyle = '#3498db';
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+
+  ctx.fillStyle = '#3498db';
+  ctx.beginPath();
+  ctx.arc(hx, hy, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+}
+
+function hitTest(px, py) {
+  // Returns { layerIdx, type } or null
+  const g = getCurrentGlyph();
+  if (!g) return null;
+
+  // Check handles of currently selected layer first
+  if (selectedLayer >= 0 && selectedLayer + 1 < g.layers.length) {
+    const layer = g.layers[selectedLayer + 1];
+    const c = layerCentroid(layer);
+    const tc = {
+      x: c.x + (layer.transform.dx || 0),
+      y: c.y + (layer.transform.dy || 0),
+    };
+    const [cx, cy] = fontToPixel(tc.x, tc.y);
+    // Translate square
+    if (Math.abs(px - cx) <= 8 && Math.abs(py - cy) <= 8) {
+      return { layerIdx: selectedLayer, type: 'translate' };
+    }
+    // Rotate handle
+    const rad = (layer.transform.rot || 0) * Math.PI / 180;
+    const hx = cx + Math.sin(rad) * 45;
+    const hy = cy - Math.cos(rad) * 45;
+    if (Math.hypot(px - hx, py - hy) <= 10) {
+      return { layerIdx: selectedLayer, type: 'rotate' };
+    }
+  }
+
+  // Otherwise hit-test every non-base layer's bbox
+  for (let i = g.layers.length - 1; i >= 1; i--) {
+    const layer = g.layers[i];
+    // Compute transformed bbox
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const contour of layer.contours) {
+      for (const pt of contour) {
+        const t = applyTransform(pt, layer.transform);
+        if (t.x < minX) minX = t.x;
+        if (t.y < minY) minY = t.y;
+        if (t.x > maxX) maxX = t.x;
+        if (t.y > maxY) maxY = t.y;
+      }
+    }
+    const [x1, y1] = fontToPixel(minX, maxY);  // top-left (maxY because font y up)
+    const [x2, y2] = fontToPixel(maxX, minY);  // bottom-right
+    if (px >= x1 && px <= x2 && py >= y1 && py <= y2) {
+      return { layerIdx: i - 1, type: 'select' };
+    }
+  }
+  return null;
 }
 
 function updateStrokeInfo() {
   const container = document.getElementById('stroke-info');
-  const data = strokeData[currentChar];
-  if (!data) { container.innerHTML = ''; return; }
+  const g = getCurrentGlyph();
+  if (!g) { container.innerHTML = ''; return; }
 
-  container.innerHTML = `<strong>${currentChar}</strong> (w: ${data.w}) — ${data.strokes.length} stroke(s)<br>`;
-  data.strokes.forEach((stroke, idx) => {
-    const color = STROKE_COLORS[idx % STROKE_COLORS.length];
-    const row = document.createElement('div');
-    row.className = 'stroke-row';
-    row.innerHTML = `
-      <span class="color-dot" style="background:${color}"></span>
-      <strong>${idx + 1}</strong>
-      x: <input type="number" step="0.01" value="${stroke.start[0].toFixed(2)}" style="width:60px"
-        onchange="updateStrokeStart('${currentChar}', ${idx}, 0, this.value)">
-      y: <input type="number" step="0.01" value="${stroke.start[1].toFixed(2)}" style="width:60px"
-        onchange="updateStrokeStart('${currentChar}', ${idx}, 1, this.value)">
-      angle: <input type="number" step="5" value="${stroke.angle}" class="angle-input"
-        onchange="updateAngle('${currentChar}', ${idx}, this.value)">
-      <button onclick="removeStroke('${currentChar}', ${idx})" style="color:red;cursor:pointer" title="Remove stroke">✕</button>
-    `;
-    container.appendChild(row);
-  });
-  // Add stroke button
-  const addBtn = document.createElement('button');
-  addBtn.textContent = '+ Add stroke';
-  addBtn.style.cssText = 'margin-top:6px;cursor:pointer;padding:4px 10px;';
-  addBtn.onclick = () => addStroke(currentChar);
-  container.appendChild(addBtn);
+  const nLayers = g.layers.length - 1;  // exclude base
+  let html = `<strong>${currentChar}</strong> (advance: ${g.advance}) — ${nLayers} guidance sub-glyphs`;
+  if (selectedLayer >= 0) {
+    const l = g.layers[selectedLayer + 1];
+    html += `<br>Selected: <code>${l.name}</code> &nbsp; dx=${(l.transform.dx||0).toFixed(0)} dy=${(l.transform.dy||0).toFixed(0)} rot=${(l.transform.rot||0).toFixed(1)}°`;
+    html += ` <button onclick="resetLayer()">Reset</button>`;
+  }
+  container.innerHTML = html;
 }
 
-window.removeStroke = function(ch, idx) {
-  strokeData[ch].strokes.splice(idx, 1);
-  modified.add(ch);
+window.resetLayer = function() {
+  if (selectedLayer < 0) return;
+  const g = getCurrentGlyph();
+  g.layers[selectedLayer + 1].transform = { dx: 0, dy: 0, rot: 0 };
+  modified.add(currentChar);
   updateButtonStyles();
   render();
   updateStrokeInfo();
 };
 
-window.addStroke = function(ch) {
-  strokeData[ch].strokes.push({
-    d: 'M 0.20,0.50 L 0.40,0.50',
-    start: [0.20, 0.50],
-    angle: 0,
-  });
-  modified.add(ch);
-  updateButtonStyles();
-  render();
-  updateStrokeInfo();
-};
-
-window.updateStrokeStart = function(ch, idx, axis, val) {
-  strokeData[ch].strokes[idx].start[axis] = parseFloat(val);
-  modified.add(ch);
-  updateButtonStyles();
-  render();
-};
-
-window.updateAngle = function(ch, idx, val) {
-  strokeData[ch].strokes[idx].angle = parseFloat(val);
-  modified.add(ch);
-  updateButtonStyles();
-  render();
-};
-
-// Dragging
+// Mouse interaction
+const overlay = document.getElementById('overlay');
 overlay.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
   const rect = overlay.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
-  const { s } = getCanvasSize();
-  const data = strokeData[currentChar];
-  if (!data) return;
-
-  const r = Math.max(8, s * 0.04);
-  for (let i = 0; i < data.strokes.length; i++) {
-    const [cx, cy] = coordToPixel(data.strokes[i].start[0], data.strokes[i].start[1], s);
-    const dist = Math.hypot(mx - cx, my - cy);
-    if (dist < r + 4) {
-      dragging = { strokeIdx: i };
-      return;
-    }
+  const hit = hitTest(mx, my);
+  if (!hit) {
+    selectedLayer = -1;
+    render();
+    updateStrokeInfo();
+    return;
+  }
+  if (hit.type === 'select') {
+    selectedLayer = hit.layerIdx;
+    render();
+    updateStrokeInfo();
+  } else {
+    selectedLayer = hit.layerIdx;
+    const g = getCurrentGlyph();
+    const layer = g.layers[selectedLayer + 1];
+    drag = {
+      type: hit.type,
+      startX: mx, startY: my,
+      origTransform: { ...layer.transform },
+      centroid: layerCentroid(layer),
+    };
+    render();
+    updateStrokeInfo();
   }
 });
 
 overlay.addEventListener('mousemove', e => {
-  if (!dragging) return;
+  if (!drag) return;
   const rect = overlay.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
-  const { s } = getCanvasSize();
-  const [nx, ny] = pixelToCoord(mx, my, s);
+  const g = getCurrentGlyph();
+  const layer = g.layers[selectedLayer + 1];
 
-  strokeData[currentChar].strokes[dragging.strokeIdx].start = [
-    Math.round(nx * 100) / 100,
-    Math.round(ny * 100) / 100,
-  ];
+  if (drag.type === 'translate') {
+    const [fx1, fy1] = pixelToFont(drag.startX, drag.startY);
+    const [fx2, fy2] = pixelToFont(mx, my);
+    layer.transform = {
+      ...drag.origTransform,
+      dx: (drag.origTransform.dx || 0) + (fx2 - fx1),
+      dy: (drag.origTransform.dy || 0) + (fy2 - fy1),
+    };
+  } else if (drag.type === 'rotate') {
+    const c = drag.centroid;
+    const tc = {
+      x: c.x + (drag.origTransform.dx || 0),
+      y: c.y + (drag.origTransform.dy || 0),
+    };
+    const [cx, cy] = fontToPixel(tc.x, tc.y);
+    // Angle from centroid to mouse (in screen space, then back-convert)
+    const mouseAngle = Math.atan2(mx - cx, -(my - cy)) * 180 / Math.PI;
+    const startAngle = Math.atan2(drag.startX - cx, -(drag.startY - cy)) * 180 / Math.PI;
+    layer.transform = {
+      ...drag.origTransform,
+      rot: (drag.origTransform.rot || 0) + (mouseAngle - startAngle),
+    };
+  }
   modified.add(currentChar);
   updateButtonStyles();
   render();
   updateStrokeInfo();
 });
 
-overlay.addEventListener('mouseup', () => { dragging = null; });
-overlay.addEventListener('mouseleave', () => { dragging = null; });
+overlay.addEventListener('mouseup', () => { drag = null; });
+overlay.addEventListener('mouseleave', () => { drag = null; });
 
-// Scale slider
+// Scale
 document.getElementById('scale').addEventListener('input', e => {
   scale = parseFloat(e.target.value);
   document.getElementById('scale-val').textContent = scale;
   render();
 });
 
-// Reset
-document.getElementById('reset-btn').addEventListener('click', () => {
-  const orig = ORIGINAL_STROKE_DATA[currentChar];
-  if (!orig) return;
-  strokeData[currentChar] = cloneData({ [currentChar]: orig })[currentChar];
-  modified.delete(currentChar);
+// Save
+document.getElementById('save-btn').addEventListener('click', async () => {
+  const transforms = {};
+  for (const [ch, g] of Object.entries(fontData.glyphs)) {
+    const layerTransforms = {};
+    for (let i = 1; i < g.layers.length; i++) {
+      const l = g.layers[i];
+      const tf = l.transform || {};
+      if (tf.dx || tf.dy || tf.rot) {
+        layerTransforms[l.name] = { dx: tf.dx||0, dy: tf.dy||0, rot: tf.rot||0 };
+      }
+    }
+    if (Object.keys(layerTransforms).length > 0) {
+      transforms[ch] = layerTransforms;
+    }
+  }
+  document.getElementById('status').textContent = 'Saving...';
+  try {
+    const res = await fetch('/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(transforms),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    document.getElementById('status').textContent = 'Saved. Reloading font...';
+    modified.clear();
+    updateButtonStyles();
+    // Reload font
+    await loadFont();
+    document.getElementById('status').textContent = 'Done.';
+  } catch (e) {
+    document.getElementById('status').textContent = 'Error: ' + e.message;
+  }
+});
+
+// Reload
+document.getElementById('reload-btn').addEventListener('click', () => {
+  modified.clear();
   updateButtonStyles();
-  render();
-  updateStrokeInfo();
-  document.getElementById('status').textContent = `Reset ${currentChar}`;
+  loadFont();
 });
 
-// Export modified
-document.getElementById('export-btn').addEventListener('click', () => {
-  exportChars([...modified].sort());
+loadFont().catch(e => {
+  document.getElementById('status').textContent = 'Error loading font: ' + e.message;
+  console.error(e);
 });
-
-document.getElementById('export-all-btn').addEventListener('click', () => {
-  exportChars(Object.keys(strokeData).sort());
-});
-
-function exportChars(chars) {
-  if (chars.length === 0) {
-    document.getElementById('output').value = '// No modifications';
-    return;
-  }
-  let out = '';
-  for (const ch of chars) {
-    const data = strokeData[ch];
-    const strokes = data.strokes.map(s => {
-      return `        { d: '${s.d}', start: [${s.start[0].toFixed(2)}, ${s.start[1].toFixed(2)}], angle: ${s.angle} }`;
-    }).join(',\n');
-    out += `      '${ch}': { w: ${data.w}, strokes: [\n${strokes},\n      ]},\n`;
-  }
-  document.getElementById('output').value = out;
-  document.getElementById('status').textContent = `Exported ${chars.length} letter(s)`;
-}
-
-// Init
-buildGrid();
-selectChar('A');
 </script>
 </body>
 </html>

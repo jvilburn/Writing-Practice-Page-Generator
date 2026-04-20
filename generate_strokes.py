@@ -19,29 +19,9 @@ import math
 import os
 
 # Config
-FONT_PATH = None  # Will try to find Andika
+FONT_PATH = os.path.join(os.path.dirname(__file__), "Schoolroom.ttf")
 RENDER_SIZE = 400  # px font size for analysis
 CANVAS_PAD = 100   # padding around glyph
-
-def find_andika_font():
-    """Try to find Andika font on the system."""
-    candidates = [
-        # Common Windows paths
-        r"C:\Users\johnv\AppData\Local\Microsoft\Windows\Fonts\Andika-Regular.ttf",
-        r"C:\Windows\Fonts\Andika-Regular.ttf",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-
-    # Try to download from Google Fonts API
-    import urllib.request
-    url = "https://github.com/google/fonts/raw/main/ofl/andika/Andika-Regular.ttf"
-    local_path = os.path.join(os.path.dirname(__file__), "Andika-Regular.ttf")
-    if not os.path.exists(local_path):
-        print(f"Downloading Andika font...")
-        urllib.request.urlretrieve(url, local_path)
-    return local_path
 
 def render_glyph(font, char, size, pad):
     """Render a single character and return binary image + metrics."""
@@ -468,7 +448,7 @@ def get_x_height(font):
 def format_stroke_data(all_data):
     """Format the stroke data as JavaScript for inclusion in index.html."""
     lines = []
-    lines.append("    // Stroke guidance data for Andika font — auto-generated from glyph analysis")
+    lines.append("    // Stroke guidance data for Schoolroom font — auto-generated from glyph analysis")
     lines.append("    // Coordinates: x in [0, width], y 0=top 1=baseline")
     lines.append("    // Uppercase: y=0 is cap height, y=1 is baseline")
     lines.append("    // Lowercase: y=0.5 is x-height (midline), y=1 is baseline, ascenders to y=0, descenders to y~1.4")
@@ -519,7 +499,7 @@ def format_stroke_data(all_data):
     return "\n".join(lines)
 
 def main():
-    font_path = find_andika_font()
+    font_path = FONT_PATH
     print(f"Using font: {font_path}")
 
     font = ImageFont.truetype(font_path, RENDER_SIZE)

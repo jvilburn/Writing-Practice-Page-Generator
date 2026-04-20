@@ -31,7 +31,7 @@ This generates `index.html` with all fonts embedded as base64 data URIs.
 
 ## Fonts
 
-- **Schoolroom** — Custom font derived from [Outfit](https://fonts.google.com/specimen/Outfit) (OFL). Uppercase from weight 300, lowercase from weight 400 scaled to 80%. Ascenders extended to cap height. Modified Q tail and I crossbars.
+- **Schoolroom** — Custom font derived from [Outfit](https://fonts.google.com/specimen/Outfit) (OFL). Uppercase from weight 300, lowercase from weight 400 scaled to 75%. Ascenders extended to cap height. Modified Q tail and I crossbars.
 - **FRB American Cursive** — Cursive font family (GPL v3) used for cursive mode.
 
 ## License
