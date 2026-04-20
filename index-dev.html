@@ -975,14 +975,15 @@
         fontFamily = guidance ? "'SchoolroomGuidance'" : "'Schoolroom'";
         features = '';
       }
-      // Cap-height-based sizing. These come from the fonts' OS/2.sCapHeight
-      // and head.unitsPerEm — declared metadata, independent of ink rendering
-      // or COLR layers. If the fonts are modified, update these constants.
+      // Cap-height-based sizing. capHeight is the actual glyph-outline yMax
+      // of the reference glyph 'H' (not OS/2.sCapHeight, which lies in the
+      // FRB font — declares 700 but H only reaches 572). Measured directly
+      // from each font file; update if the fonts are modified.
       const FONT_METRICS = {
         'Schoolroom':         { upm: 1000, capHeight: 688 },
         'SchoolroomGuidance': { upm: 1000, capHeight: 688 },
-        'FRBCursive':         { upm: 1000, capHeight: 700 },
-        'FRBCursiveArrow':    { upm: 1000, capHeight: 700 },
+        'FRBCursive':         { upm: 1000, capHeight: 572 },
+        'FRBCursiveArrow':    { upm: 1000, capHeight: 572 },
       };
       const famKey = fontFamily.replace(/['"\s,]/g, '').split(/sans-serif|cursive/)[0];
       const metrics = FONT_METRICS[famKey];
