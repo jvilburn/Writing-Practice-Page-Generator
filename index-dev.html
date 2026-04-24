@@ -994,6 +994,22 @@
       return guidance ? 'FRBCursiveArrow' : 'FRBCursive';
     }
 
+    // Metrics by logical font name; used for per-span sizing in addTextToLine.
+    const FONT_METRICS_FOR = {
+      print:   { upm: 1000, capHeight: 688, ascent: 1000, descent: 260,
+                 fontFamily: "'Schoolroom'", guidanceFamily: "'SchoolroomGuidance'",
+                 tracePalette: '--SchoolroomGuidanceTrace' },
+      cursive: { upm: 1000, capHeight: 572, ascent: 650,  descent: 350,
+                 fontFamily: "'FRBCursive'", guidanceFamily: "'FRBCursiveArrow'",
+                 tracePalette: '--FRBCursiveArrowTrace' },
+    };
+
+    // Compute font-size in px so that cap-height equals writingHeight for a given font.
+    function fontSizeFor(font, writingHeight) {
+      const m = FONT_METRICS_FOR[font];
+      return writingHeight * m.upm / m.capHeight;
+    }
+
     function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance, editable, lineStyle) {
       let fontFamily, features;
       if (letterStyle === 'cursive') {
@@ -1027,45 +1043,60 @@
       const targetBaseline = writingHeight - yOffset;
 
       if (editable) {
-        // Editable line IS the line-group: a contenteditable element with
-        // ruled lines drawn as a repeating background. Text and lines share
-        // the same layout context, so the text baseline lands on the ruled
-        // baseline automatically.
+        // Editable line: one <span data-font="..."> per segment, each styled
+        // with its own font-family and font-size (so cap-height matches
+        // writingHeight for both fonts). Line-height is the max of both
+        // fonts' natural box so nothing clips. Ruled lines drawn via
+        // repeating-linear-gradient background on the div; baseline is
+        // measured from a probe so the background aligns precisely.
         //
-        // We measure the ACTUAL baseline position after rendering (CSS math
-        // for line-box internals is too browser-dependent to trust), then
-        // apply the ruled-line background with correct offsets.
-        const F = fontSizeAll;
-        const ascentPx = F * metrics.ascent / metrics.upm;
-        const descentPx = F * metrics.descent / metrics.upm;
-        const L = ascentPx + descentPx;
+        // When editable, the `text` parameter is a Segment[] (not a string).
+        const segments = Array.isArray(text) ? text : stringToSegments(text, 'print');
+
+        const F_print = fontSizeFor('print', writingHeight);
+        const F_cursive = fontSizeFor('cursive', writingHeight);
+        const Lprint = F_print * (FONT_METRICS_FOR.print.ascent + FONT_METRICS_FOR.print.descent) / FONT_METRICS_FOR.print.upm;
+        const Lcursive = F_cursive * (FONT_METRICS_FOR.cursive.ascent + FONT_METRICS_FOR.cursive.descent) / FONT_METRICS_FOR.cursive.upm;
+        const L = Math.max(Lprint, Lcursive);
 
         const div = document.createElement('div');
         div.className = 'editable-line';
         div.contentEditable = 'plaintext-only';
         div.spellcheck = false;
-        div.textContent = text;
         div.style.cssText = `
           position: relative;
           margin: 0;
           padding: 0;
-          font-family: ${fontFamily};
-          font-size: ${F}px;
           line-height: ${L}px;
           color: ${color};
           white-space: pre-wrap;
           outline: none;
           cursor: text;
           min-height: ${L}px;
-          ${features}
         `;
-        if (letterStyle === 'cursive') {
-          div.style.fontFeatureSettings = '"calt" 1';
-          if (guidance && mode === 'trace') div.style.fontPalette = '--FRBCursiveArrowTrace';
-        } else {
-          div.style.fontFeatureSettings = '"liga" 0';
-          if (guidance && mode === 'trace') div.style.fontPalette = '--SchoolroomGuidanceTrace';
+
+        // Render segments. Empty lines get a single zero-length print span so
+        // the caret has something to land in.
+        const segsToRender = (segments && segments.length > 0)
+          ? segments
+          : [{ font: 'print', text: '' }];
+        for (const seg of segsToRender) {
+          const span = document.createElement('span');
+          span.dataset.font = seg.font;
+          span.textContent = seg.text;
+          const fm = FONT_METRICS_FOR[seg.font];
+          const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+          span.style.cssText = `
+            font-family: ${fam};
+            font-size: ${fontSizeFor(seg.font, writingHeight)}px;
+            font-feature-settings: ${seg.font === 'cursive' ? '"calt" 1' : '"liga" 0'};
+          `;
+          if (guidance && mode === 'trace') {
+            span.style.fontPalette = fm.tracePalette;
+          }
+          div.appendChild(span);
         }
+
         group.innerHTML = '';
         group.style.height = L + 'px';
         group.appendChild(div);
@@ -1083,7 +1114,6 @@
 
         const capTopY = baselineY - writingHeight;
         const midY = capTopY + writingHeight * 0.5;
-        // 'ruled' = 3-line (top, mid, base). Anything else = baseline only.
         const showRuled = lineStyle === 'ruled';
 
         const bgParts = [`transparent 0`];
@@ -1231,20 +1261,21 @@
       if (mode === 'trace') {
         // Trace mode: editable source line, then (reps-1) read-only copies
         for (let ci = 0; ci < content.length; ci++) {
-          const line = content[ci];
+          const lineStr = content[ci];
+          const segs = editorLines[ci] || [];
           // Editable source line (first of the group)
           if (linesUsed >= maxLines) break;
           const sourceGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
           sourceGroup.dataset.lineIdx = String(ci);
           preview.appendChild(sourceGroup);
-          addTextToLine(sourceGroup, line, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, true, lineStyle);
+          addTextToLine(sourceGroup, segs, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, true, lineStyle);
           linesUsed++;
           // Repetitions (read-only)
           for (let r = 1; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
             group.classList.add('repetition');
             preview.appendChild(group);
-            addTextToLine(group, line, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, false, lineStyle);
+            addTextToLine(group, lineStr, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, false, lineStyle);
             linesUsed++;
           }
         }
@@ -1256,12 +1287,12 @@
       } else {
         // Copy mode: editable model line, then N blank practice lines
         for (let ci = 0; ci < content.length; ci++) {
-          const line = content[ci];
+          const segs = editorLines[ci] || [];
           if (linesUsed >= maxLines) break;
           const modelGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
           modelGroup.dataset.lineIdx = String(ci);
           preview.appendChild(modelGroup);
-          addTextToLine(modelGroup, line, fontSize, writingHeight, '#000', letterStyle, mode, guidance, true, lineStyle);
+          addTextToLine(modelGroup, segs, fontSize, writingHeight, '#000', letterStyle, mode, guidance, true, lineStyle);
           linesUsed++;
           for (let b = 0; b < blankLines && linesUsed < maxLines; b++) {
             preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
@@ -1292,9 +1323,42 @@
       el.focus();
       const sel = window.getSelection();
       const range = document.createRange();
-      const node = el.firstChild;
-      if (node && node.nodeType === Node.TEXT_NODE) {
-        range.setStart(node, Math.min(offset, node.textContent.length));
+      // Walk spans to find which one contains the target offset.
+      let remaining = offset;
+      for (const child of el.childNodes) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const textNode = child.firstChild;
+          const len = child.textContent.length;
+          if (remaining <= len) {
+            if (textNode) {
+              range.setStart(textNode, Math.max(0, Math.min(remaining, len)));
+            } else {
+              range.setStart(child, 0);
+            }
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            return;
+          }
+          remaining -= len;
+        } else if (child.nodeType === Node.TEXT_NODE) {
+          const len = child.textContent.length;
+          if (remaining <= len) {
+            range.setStart(child, Math.max(0, Math.min(remaining, len)));
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            return;
+          }
+          remaining -= len;
+        }
+      }
+      // Past the end: place at end of last child (or the el itself if empty)
+      const last = el.lastElementChild || el.lastChild;
+      if (last && last.nodeType === Node.ELEMENT_NODE && last.firstChild) {
+        range.setStart(last.firstChild, last.textContent.length);
+      } else if (last && last.nodeType === Node.TEXT_NODE) {
+        range.setStart(last, last.textContent.length);
       } else {
         range.setStart(el, 0);
       }
@@ -1318,10 +1382,21 @@
     }
 
     function syncEditorLinesFromDOM() {
-      // For now, every DOM line is read as a single print segment. Task 3
-      // will teach this to walk real <span data-font="..."> children.
+      // Walk each editable line's <span data-font="..."> children and build
+      // a Segment[] per line. Stray text nodes (from e.g. IME composition)
+      // fall back to print.
       const eds = $$('.editable-line');
-      editorLines = Array.from(eds).map(el => stringToSegments(el.textContent, 'print'));
+      editorLines = Array.from(eds).map(el => {
+        const segs = [];
+        for (const child of el.childNodes) {
+          if (child.nodeType === Node.ELEMENT_NODE && child.dataset && child.dataset.font) {
+            segs.push({ font: child.dataset.font, text: child.textContent });
+          } else if (child.nodeType === Node.TEXT_NODE) {
+            segs.push({ font: 'print', text: child.textContent });
+          }
+        }
+        return coalesceSegments(segs);
+      });
     }
 
     function onEditableKeydown(e) {
