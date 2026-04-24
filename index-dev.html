@@ -200,6 +200,34 @@
     .editable-line {
       outline: none;
     }
+    /* Font-at-caret segmented control */
+    .segmented {
+      display: inline-flex;
+      border: 1px solid #999;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .seg {
+      padding: 4px 14px;
+      background: #fff;
+      border: 0;
+      border-right: 1px solid #ddd;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+    .seg:last-child {
+      border-right: 0;
+    }
+    .seg.active {
+      background: #4a90d9;
+      color: #fff;
+    }
+    .seg.mixed {
+      background: #e8eef4;
+      color: #4a90d9;
+      font-style: italic;
+    }
     /* Repetition lines: visible text but not interactive. Only the text layer
        is non-interactive; the line-group/ruled background stays visible. */
     .line-group.repetition svg,
@@ -281,9 +309,13 @@
       <h2>Worksheet Settings</h2>
 
       <div class="control-group">
-        <h3>Letter Style</h3>
-        <label><input type="radio" name="letterStyle" value="print" checked> Print (block)</label>
-        <label><input type="radio" name="letterStyle" value="cursive"> Cursive</label>
+        <h3>Font at caret</h3>
+        <div class="segmented" id="fontSeg">
+          <button type="button" class="seg active" data-font="print"
+                  style="font-family: 'Schoolroom', sans-serif;">Print</button>
+          <button type="button" class="seg" data-font="cursive"
+                  style="font-family: 'FRBCursive', cursive; font-feature-settings: 'calt' 1;">Cursive</button>
+        </div>
       </div>
 
       <div class="control-group">
@@ -420,6 +452,24 @@
       [{ font: 'print', text: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z' }],
       [{ font: 'print', text: 'a b c d e f g h i j k l m n o p q r s t u v w x y z' }],
     ];
+
+    // Currently-active font for new characters typed or inserted. Updated
+    // by the toolbar (click Print/Cursive) and by selectionchange (caret
+    // moves). Default: print.
+    let activeFont = 'print';
+
+    function updateFontToolbar() {
+      const buttons = $$('#fontSeg .seg');
+      buttons.forEach(b => {
+        b.classList.toggle('active', b.dataset.font === activeFont);
+        b.classList.remove('mixed');
+      });
+    }
+
+    function setActiveFont(font) {
+      activeFont = font;
+      updateFontToolbar();
+    }
 
     // A line is a Segment[]: an ordered list of runs, each with its own font.
     // Segments within a line never cross line boundaries. Adjacent same-font
@@ -1177,7 +1227,10 @@
 
       const lineStyle = getVal('lineStyle');
       const mode = getVal('mode');
-      const letterStyle = getVal('letterStyle');
+      // letterStyle is a vestige — per-segment fonts replace this. Kept as
+      // 'print' so any non-editable branches that still use it (SVG repetitions)
+      // default to print. Task 9 will make them segment-aware.
+      const letterStyle = 'print';
       // Slider controls writingHeight (top line to baseline distance).
       // CSS font-size is scaled up so cap height fills that space exactly.
       const writingHeight = parseInt($('#fontSize').value);
@@ -1508,13 +1561,11 @@
       return -1;
     }
 
-    // Measure the rendered width of a line using canvas, matching addTextToLine font
+    // Measure the rendered width of a line using canvas, matching addTextToLine font.
+    // TODO(Task 9): accept Segment[] and measure each segment with its own font.
     function measureLinePixelWidth(text) {
-      const letterStyle = getVal('letterStyle');
       const guidance = $('#strokeGuide').checked;
-      const fontFamily = letterStyle === 'cursive'
-        ? `'${getCursiveFont(getVal('mode'), guidance)}'`
-        : (guidance ? "'SchoolroomGuidance'" : "'Schoolroom'");
+      const fontFamily = guidance ? "'SchoolroomGuidance'" : "'Schoolroom'";
       const writingHeight = parseInt($('#fontSize').value);
       const FM = {
         'Schoolroom':         { upm: 1000, capHeight: 688 },
@@ -1632,7 +1683,6 @@
       const renderInputs = [
         ...$$('input[name="mode"]'),
         ...$$('input[name="lineStyle"]'),
-        ...$$('input[name="letterStyle"]'),
         ...$$('input[name="orientation"]'),
       ];
       renderInputs.forEach(el => el.addEventListener('change', () => {
@@ -1650,6 +1700,18 @@
       $('#blankLines').addEventListener('change', renderPreview);
       $('#strokeGuide').addEventListener('change', renderPreview);
       $('#printBtn').addEventListener('click', () => window.print());
+
+      // Font-at-caret segmented control
+      $$('#fontSeg .seg').forEach(btn => {
+        btn.addEventListener('click', () => {
+          setActiveFont(btn.dataset.font);
+          // Return focus to the last-focused editable line
+          const active = document.activeElement;
+          if (active && active.classList && active.classList.contains('editable-line')) {
+            active.focus();
+          }
+        });
+      });
     }
 
     // Initialize after all fonts (including cursive) are loaded
