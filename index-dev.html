@@ -511,6 +511,69 @@
       return n;
     }
 
+    // Return the segments covering [start, end) of this line (no mutation).
+    // Output is not coalesced — callers should coalesce if concatenating.
+    function sliceSegments(segs, start, end) {
+      const out = [];
+      let pos = 0;
+      for (const seg of segs) {
+        const segEnd = pos + seg.text.length;
+        if (segEnd > start && pos < end) {
+          const from = Math.max(0, start - pos);
+          const to = Math.min(seg.text.length, end - pos);
+          out.push({ font: seg.font, text: seg.text.slice(from, to) });
+        }
+        pos = segEnd;
+        if (pos >= end) break;
+      }
+      return out;
+    }
+
+    // Replace characters in editorLines[idx] from [start, end) with newSegments.
+    // Updates the DOM for just that line via rebuildLine — no full renderPreview,
+    // so the caret on other lines is preserved.
+    function applyEdit(idx, start, end, newSegments) {
+      const line = editorLines[idx];
+      const head = sliceSegments(line, 0, start);
+      const tail = sliceSegments(line, end, lineLength(line));
+      editorLines[idx] = coalesceSegments([...head, ...newSegments, ...tail]);
+      rebuildLine(idx);
+    }
+
+    // Re-render only the span children of the editable line at index idx.
+    // Keeps the div element itself (so focus and the ruled background stay).
+    function rebuildLine(idx) {
+      const groups = $$('.line-group');
+      const g = groups[indexOfGroupForLineIdx(idx)];
+      if (!g) return;
+      const div = g.querySelector('.editable-line');
+      if (!div) return;
+      div.innerHTML = '';
+      const writingHeight = parseInt($('#fontSize').value);
+      const mode = getVal('mode');
+      const guidance = $('#strokeGuide').checked;
+      const color = div.style.color || getComputedStyle(div).color;
+      const segs = (editorLines[idx] && editorLines[idx].length > 0)
+        ? editorLines[idx]
+        : [{ font: 'print', text: '' }];
+      for (const seg of segs) {
+        const span = document.createElement('span');
+        span.dataset.font = seg.font;
+        span.textContent = seg.text;
+        const fm = FONT_METRICS_FOR[seg.font];
+        const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+        span.style.cssText = `
+          font-family: ${fam};
+          font-size: ${fontSizeFor(seg.font, writingHeight)}px;
+          font-feature-settings: ${seg.font === 'cursive' ? '"calt" 1' : '"liga" 0'};
+        `;
+        if (guidance && mode === 'trace') {
+          span.style.fontPalette = fm.tracePalette;
+        }
+        div.appendChild(span);
+      }
+    }
+
 
     function getContent() {
       // editorLines is the source of truth (Segment[][]). For now, callers
