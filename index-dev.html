@@ -1789,6 +1789,56 @@
     }
 
     // Find which .line-group is the editable source group for a given editorLines index
+    // Find the .editable-line ancestor of a DOM node.
+    function findEditableLine(node) {
+      while (node && node !== document) {
+        if (node.classList && node.classList.contains('editable-line')) return node;
+        node = node.parentNode;
+      }
+      return null;
+    }
+
+    // Apply `font` to every character in the current selection, coalescing runs.
+    // Spans multiple editable lines correctly (apply to tail of start line,
+    // middle lines in full, head of end line).
+    function applyFontToSelection(font) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      const startEl = findEditableLine(range.startContainer);
+      const endEl = findEditableLine(range.endContainer);
+      if (!startEl || !endEl) return;
+      const startGroup = startEl.closest('.line-group');
+      const endGroup = endEl.closest('.line-group');
+      if (!startGroup || !endGroup) return;
+      const startIdx = parseInt(startGroup.dataset.lineIdx, 10);
+      const endIdx = parseInt(endGroup.dataset.lineIdx, 10);
+      const startOffset = getCaretOffsetAtRange(startEl, range.startContainer, range.startOffset);
+      const endOffset = getCaretOffsetAtRange(endEl, range.endContainer, range.endOffset);
+
+      if (startIdx === endIdx) {
+        const [lo, hi] = startOffset <= endOffset ? [startOffset, endOffset] : [endOffset, startOffset];
+        applyFontToRange(startIdx, lo, hi, font);
+      } else {
+        // Normalize ordering so startIdx <= endIdx
+        const [a, b, aOff, bOff] = startIdx <= endIdx
+          ? [startIdx, endIdx, startOffset, endOffset]
+          : [endIdx, startIdx, endOffset, startOffset];
+        applyFontToRange(a, aOff, lineLength(editorLines[a]), font);
+        for (let i = a + 1; i < b; i++) {
+          applyFontToRange(i, 0, lineLength(editorLines[i]), font);
+        }
+        applyFontToRange(b, 0, bOff, font);
+      }
+    }
+
+    function applyFontToRange(idx, start, end, font) {
+      if (start >= end) return;
+      const newSegs = sliceSegments(editorLines[idx], start, end)
+        .map(s => ({ font, text: s.text }));
+      applyEdit(idx, start, end, newSegs);
+    }
+
     function indexOfGroupForLineIdx(lineIdx) {
       const groups = $$('.line-group');
       for (let i = 0; i < groups.length; i++) {
@@ -1943,7 +1993,12 @@
       $$('#fontSeg .seg').forEach(btn => {
         btn.addEventListener('mousedown', e => e.preventDefault());
         btn.addEventListener('click', () => {
-          setActiveFont(btn.dataset.font);
+          const font = btn.dataset.font;
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            applyFontToSelection(font);
+          }
+          setActiveFont(font);
         });
       });
     }
