@@ -1535,8 +1535,15 @@
     }
 
     // Caret moves / selection changes → sync activeFont to the character
-    // on the LEFT of the caret (or right, at line start). Mixed selections
-    // put the toolbar into a "mixed" indeterminate state.
+    // on the LEFT of the caret (or right, at line start).
+    //
+    // Mixed-selection behavior: when a selection spans multiple fonts, the
+    // toolbar shows a 'mixed' indeterminate state, but `activeFont` is NOT
+    // changed. That means if the user types to overwrite the selection, the
+    // new character uses whatever font they previously chose (or whatever was
+    // active before the selection was made). This matches word-processor
+    // convention: a font pick is a separate "hold" from the selection.
+    //
     // Attached once at module load; no-op if caret isn't inside an editable line.
     document.addEventListener('selectionchange', () => {
       const sel = window.getSelection();
@@ -1551,30 +1558,28 @@
       if (!group) return;
       const idx = parseInt(group.dataset.lineIdx, 10);
       if (!Number.isFinite(idx)) return;
-      const offset = getCaretOffsetAtRange(node, range.startContainer, range.startOffset);
+
+      const startOffset = getCaretOffsetAtRange(node, range.startContainer, range.startOffset);
+      let isMixed = false;
       if (!sel.isCollapsed) {
         const endOffset = getCaretOffsetAtRange(node, range.endContainer, range.endOffset);
-        const lo = Math.min(offset, endOffset);
-        const hi = Math.max(offset, endOffset);
+        const lo = Math.min(startOffset, endOffset);
+        const hi = Math.max(startOffset, endOffset);
         const segs = sliceSegments(editorLines[idx] || [], lo, hi);
         const fonts = new Set(segs.map(s => s.font));
-        if (fonts.size > 1) {
-          $$('#fontSeg .seg').forEach(b => {
-            b.classList.remove('active');
-            b.classList.add('mixed');
-            b.setAttribute('aria-pressed', 'false');
-          });
-          return;
-        }
+        isMixed = fonts.size > 1;
       }
-      const f = fontAtCaret(editorLines[idx], offset);
-      if (activeFont !== f) {
-        activeFont = f;
-        updateFontToolbar();
-      } else {
-        // ensure any 'mixed' styling is cleared even when font didn't change
-        updateFontToolbar();
+      if (isMixed) {
+        // Leave activeFont as the user's last pick; show mixed state in toolbar.
+        $$('#fontSeg .seg').forEach(b => {
+          b.classList.remove('active');
+          b.classList.add('mixed');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        return;
       }
+      activeFont = fontAtCaret(editorLines[idx], startOffset);
+      updateFontToolbar();
     });
 
     function syncEditorLinesFromDOM() {
@@ -1641,6 +1646,11 @@
         if (lo === hi && lo === 0) {
           // Backspace at start of line: merge with previous line (preserving
           // both lines' full Segment[] content — no flattening).
+          //
+          // Assumes editorLines is authoritative: every mutator (typing,
+          // delete, Enter, paste, font-apply) routes through applyEdit or
+          // explicit editorLines mutation followed by renderPreview. No
+          // syncEditorLinesFromDOM call needed here.
           if (idx === 0) return;
           const prev = editorLines[idx - 1];
           const prevLen = lineLength(prev);
@@ -1676,6 +1686,12 @@
       }
       // Other input types (composition, paste, etc.) fall through to the
       // default browser handling; the input event will resync state.
+      //
+      // TODO: IME composition (insertCompositionText/insertFromComposition)
+      // is currently attributed to whatever span the browser drops text into,
+      // which may be a stray text node that `syncEditorLinesFromDOM` labels
+      // as print. For languages that rely on IME we'd need to manage
+      // compositionstart/end and wrap composed text in an activeFont span.
     }
 
     function onEditableKeydown(e) {
