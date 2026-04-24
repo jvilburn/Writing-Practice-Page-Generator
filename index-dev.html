@@ -1698,19 +1698,16 @@
       const el = e.currentTarget;
       if (e.key === 'Enter') {
         e.preventDefault();
-        const offset = getCaretOffset(el);
-        const text = el.textContent;
-        const before = text.slice(0, offset);
-        const after = text.slice(offset);
-        el.textContent = before;
-        // Insert a new line after the current one in editorLines
-        syncEditorLinesFromDOM();
         const myGroup = el.closest('.line-group');
         const idx = parseInt(myGroup.dataset.lineIdx, 10);
-        // TODO(Task 7): split Segment[] directly to preserve fonts across Enter
-        editorLines.splice(idx + 1, 0, stringToSegments(after, 'print'));
+        const offset = getCaretOffset(el);
+        // Split the Segment[] at the caret offset (preserving font runs).
+        const line = editorLines[idx];
+        const head = coalesceSegments(sliceSegments(line, 0, offset));
+        const tail = coalesceSegments(sliceSegments(line, offset, lineLength(line)));
+        editorLines[idx] = head;
+        editorLines.splice(idx + 1, 0, tail);
         renderPreview();
-        // Focus the new line at offset 0
         const newGroup = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
         if (newGroup) {
           const newLine = newGroup.querySelector('.editable-line');
@@ -1741,26 +1738,40 @@
       const text = (e.clipboardData || window.clipboardData).getData('text');
       if (!text) return;
       const el = e.currentTarget;
-      const offset = getCaretOffset(el);
-      const myText = el.textContent;
+      const myGroup = el.closest('.line-group');
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const sel = window.getSelection();
+      const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+      const startOff = getCaretOffset(el);
+      const endOff = range ? getCaretOffsetAtRange(el, range.endContainer, range.endOffset) : startOff;
+      const [lo, hi] = startOff <= endOff ? [startOff, endOff] : [endOff, startOff];
       const pieces = text.split(/\r?\n/);
       if (pieces.length === 1) {
-        el.textContent = myText.slice(0, offset) + pieces[0] + myText.slice(offset);
-        setCaretOffset(el, offset + pieces[0].length);
-        syncEditorLinesFromDOM();
+        // Single-line paste: replace selection with one activeFont segment.
+        applyEdit(idx, lo, hi, [{ font: activeFont, text: pieces[0] }]);
+        setCaretOffset(el, lo + pieces[0].length);
         wrapCurrentLineIfTooLong(el);
         rerenderSiblingsForLine(el);
         return;
       }
-      // Multi-line paste: current line gets first+before+after[0], rest become new lines
-      el.textContent = myText.slice(0, offset) + pieces[0];
-      const myGroup = el.closest('.line-group');
-      const idx = parseInt(myGroup.dataset.lineIdx, 10);
-      const tail = pieces.slice(1);
-      tail[tail.length - 1] = tail[tail.length - 1] + myText.slice(offset);
-      syncEditorLinesFromDOM();
-      editorLines.splice(idx + 1, 0, ...tail.map(s => stringToSegments(s, 'print')));
+      // Multi-line paste: current line keeps head + first piece; middle pieces
+      // become new lines; last piece prepends to what follows the selection.
+      const line = editorLines[idx];
+      const head = sliceSegments(line, 0, lo);
+      const tail = sliceSegments(line, hi, lineLength(line));
+      editorLines[idx] = coalesceSegments([...head, { font: activeFont, text: pieces[0] }]);
+      const middleLines = pieces.slice(1, pieces.length - 1).map(p =>
+        coalesceSegments([{ font: activeFont, text: p }])
+      );
+      const lastLine = coalesceSegments([{ font: activeFont, text: pieces[pieces.length - 1] }, ...tail]);
+      editorLines.splice(idx + 1, 0, ...middleLines, lastLine);
       renderPreview();
+      // Restore caret at the end of the pasted content (start of tail on last line)
+      const targetLineIdx = idx + pieces.length - 1;
+      const targetCaret = pieces[pieces.length - 1].length;
+      const g = $$('.line-group')[indexOfGroupForLineIdx(targetLineIdx)];
+      const l = g && g.querySelector('.editable-line');
+      if (l) setCaretOffset(l, targetCaret);
     }
 
     // Find which .line-group is the editable source group for a given editorLines index
