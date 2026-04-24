@@ -1010,7 +1010,9 @@
       return writingHeight * m.upm / m.capHeight;
     }
 
-    function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance, editable, lineStyle) {
+    // `content` is Segment[] when editable=true, otherwise a plain string.
+    function addTextToLine(group, content, fontSize, writingHeight, color, letterStyle, mode, guidance, editable, lineStyle) {
+      const text = editable ? null : content;  // non-editable uses string
       let fontFamily, features;
       if (letterStyle === 'cursive') {
         fontFamily = `'${getCursiveFont(mode, guidance)}'`;
@@ -1019,19 +1021,10 @@
         fontFamily = guidance ? "'SchoolroomGuidance'" : "'Schoolroom'";
         features = '';
       }
-      // Cap-height-based sizing. capHeight is the actual glyph-outline yMax
-      // of the reference glyph 'H'. ascent/descent come from hhea.ascent and
-      // |hhea.descent| and are used to compute baseline position within CSS
-      // line-boxes. All measured directly from the font files.
-      const FONT_METRICS = {
-        'Schoolroom':         { upm: 1000, capHeight: 688, ascent: 1000, descent: 260 },
-        'SchoolroomGuidance': { upm: 1000, capHeight: 688, ascent: 1000, descent: 260 },
-        'FRBCursive':         { upm: 1000, capHeight: 572, ascent: 650,  descent: 350 },
-        'FRBCursiveArrow':    { upm: 1000, capHeight: 572, ascent: 650,  descent: 350 },
-      };
-      const famKey = fontFamily.replace(/['"\s,]/g, '').split(/sans-serif|cursive/)[0];
-      const metrics = FONT_METRICS[famKey];
-      if (!metrics) throw new Error(`No metrics declared for font family: ${fontFamily}`);
+      // Use the unified FONT_METRICS_FOR table (keyed by logical font name)
+      // as the single source of cap-height / ascent / descent data. For
+      // non-editable rendering we pick metrics from letterStyle.
+      const metrics = FONT_METRICS_FOR[letterStyle === 'cursive' ? 'cursive' : 'print'];
       // writingHeight is the desired cap height in px. Solve for font-size:
       //   capHeightPx = fontSize * capHeight / upm
       //   fontSize = writingHeight * upm / capHeight
@@ -1050,8 +1043,8 @@
         // repeating-linear-gradient background on the div; baseline is
         // measured from a probe so the background aligns precisely.
         //
-        // When editable, the `text` parameter is a Segment[] (not a string).
-        const segments = Array.isArray(text) ? text : stringToSegments(text, 'print');
+        // When editable, `content` is a Segment[] (see signature comment).
+        const segments = Array.isArray(content) ? content : stringToSegments(content, 'print');
 
         const F_print = fontSizeFor('print', writingHeight);
         const F_cursive = fontSizeFor('cursive', writingHeight);
@@ -1323,35 +1316,32 @@
       el.focus();
       const sel = window.getSelection();
       const range = document.createRange();
-      // Walk spans to find which one contains the target offset.
+      // Walk spans to find which one contains the target offset. For offsets
+      // that land exactly on a span boundary, prefer the START of the NEXT
+      // span — so typing inherits the next span's font (right-neighbor).
+      // Exception: the last span takes offsets up to its end inclusive.
+      const children = Array.from(el.childNodes).filter(c =>
+        c.nodeType === Node.ELEMENT_NODE || c.nodeType === Node.TEXT_NODE
+      );
       let remaining = offset;
-      for (const child of el.childNodes) {
-        if (child.nodeType === Node.ELEMENT_NODE) {
-          const textNode = child.firstChild;
-          const len = child.textContent.length;
-          if (remaining <= len) {
-            if (textNode) {
-              range.setStart(textNode, Math.max(0, Math.min(remaining, len)));
-            } else {
-              range.setStart(child, 0);
-            }
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-            return;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const isLast = i === children.length - 1;
+        const len = child.textContent.length;
+        const fits = isLast ? remaining <= len : remaining < len;
+        if (fits) {
+          const textNode = child.nodeType === Node.ELEMENT_NODE ? child.firstChild : child;
+          if (textNode) {
+            range.setStart(textNode, Math.max(0, Math.min(remaining, len)));
+          } else {
+            range.setStart(child, 0);
           }
-          remaining -= len;
-        } else if (child.nodeType === Node.TEXT_NODE) {
-          const len = child.textContent.length;
-          if (remaining <= len) {
-            range.setStart(child, Math.max(0, Math.min(remaining, len)));
-            range.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(range);
-            return;
-          }
-          remaining -= len;
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
         }
+        remaining -= len;
       }
       // Past the end: place at end of last child (or the el itself if empty)
       const last = el.lastElementChild || el.lastChild;
@@ -1383,16 +1373,35 @@
 
     function syncEditorLinesFromDOM() {
       // Walk each editable line's <span data-font="..."> children and build
-      // a Segment[] per line. Stray text nodes (from e.g. IME composition)
-      // fall back to print.
+      // a Segment[] per line. Stray text nodes (from e.g. IME composition or
+      // certain browser paste paths) inherit the font of the previous
+      // sibling span, falling back to the next sibling span, then print.
       const eds = $$('.editable-line');
       editorLines = Array.from(eds).map(el => {
+        const kids = Array.from(el.childNodes).filter(c =>
+          (c.nodeType === Node.ELEMENT_NODE && c.dataset && c.dataset.font) ||
+          c.nodeType === Node.TEXT_NODE
+        );
+        function fontForStray(i) {
+          // Look backwards for a span with a font
+          for (let j = i - 1; j >= 0; j--) {
+            const k = kids[j];
+            if (k.nodeType === Node.ELEMENT_NODE && k.dataset && k.dataset.font) return k.dataset.font;
+          }
+          // Then forwards
+          for (let j = i + 1; j < kids.length; j++) {
+            const k = kids[j];
+            if (k.nodeType === Node.ELEMENT_NODE && k.dataset && k.dataset.font) return k.dataset.font;
+          }
+          return 'print';
+        }
         const segs = [];
-        for (const child of el.childNodes) {
-          if (child.nodeType === Node.ELEMENT_NODE && child.dataset && child.dataset.font) {
+        for (let i = 0; i < kids.length; i++) {
+          const child = kids[i];
+          if (child.nodeType === Node.ELEMENT_NODE) {
             segs.push({ font: child.dataset.font, text: child.textContent });
-          } else if (child.nodeType === Node.TEXT_NODE) {
-            segs.push({ font: 'print', text: child.textContent });
+          } else {
+            segs.push({ font: fontForStray(i), text: child.textContent });
           }
         }
         return coalesceSegments(segs);
