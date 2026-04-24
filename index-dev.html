@@ -417,8 +417,8 @@
     // Source-of-truth content. Initially the default alphabet; replaced by
     // the contents of editable lines in the preview as the user types.
     let editorLines = [
-      'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z',
-      'a b c d e f g h i j k l m n o p q r s t u v w x y z',
+      [{ font: 'print', text: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z' }],
+      [{ font: 'print', text: 'a b c d e f g h i j k l m n o p q r s t u v w x y z' }],
     ];
 
     // A line is a Segment[]: an ordered list of runs, each with its own font.
@@ -459,9 +459,10 @@
 
 
     function getContent() {
-      // editorLines is the source of truth; it's kept in sync with the DOM
-      // via syncEditorLinesFromDOM() on every input event.
-      return editorLines.slice();
+      // editorLines is the source of truth (Segment[][]). For now, callers
+      // that expect strings get flattened strings. Task 3 teaches the
+      // renderer to consume Segment[] directly.
+      return editorLines.map(segmentsToString);
     }
 
     function createLineGroup(lineStyle, writingHeight, gap, midRatio) {
@@ -1223,7 +1224,7 @@
       // overflow into subsequent lines (not creating extra ones).
       ensureLinesFit();
       let content = getContent();
-      if (content.length === 0) { editorLines = ['']; content = ['']; }
+      if (content.length === 0) { editorLines = [[]]; content = ['']; }
 
       let linesUsed = 0;
 
@@ -1317,8 +1318,10 @@
     }
 
     function syncEditorLinesFromDOM() {
+      // For now, every DOM line is read as a single print segment. Task 3
+      // will teach this to walk real <span data-font="..."> children.
       const eds = $$('.editable-line');
-      editorLines = Array.from(eds).map(el => el.textContent);
+      editorLines = Array.from(eds).map(el => stringToSegments(el.textContent, 'print'));
     }
 
     function onEditableKeydown(e) {
@@ -1334,7 +1337,7 @@
         syncEditorLinesFromDOM();
         const myGroup = el.closest('.line-group');
         const idx = parseInt(myGroup.dataset.lineIdx, 10);
-        editorLines.splice(idx + 1, 0, after);
+        editorLines.splice(idx + 1, 0, stringToSegments(after, 'print'));
         renderPreview();
         // Focus the new line at offset 0
         const newGroup = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
@@ -1353,9 +1356,9 @@
           const idx = parseInt(myGroup.dataset.lineIdx, 10);
           if (idx === 0) { e.preventDefault(); return; }
           e.preventDefault();
-          const prevText = editorLines[idx - 1];
+          const prevText = segmentsToString(editorLines[idx - 1]);
           const mergedOffset = prevText.length;
-          editorLines[idx - 1] = prevText + editorLines[idx];
+          editorLines[idx - 1] = stringToSegments(prevText + segmentsToString(editorLines[idx]), 'print');
           editorLines.splice(idx, 1);
           renderPreview();
           const prevGroup = $$('.line-group')[indexOfGroupForLineIdx(idx - 1)];
@@ -1406,7 +1409,7 @@
       const tail = pieces.slice(1);
       tail[tail.length - 1] = tail[tail.length - 1] + myText.slice(offset);
       syncEditorLinesFromDOM();
-      editorLines.splice(idx + 1, 0, ...tail);
+      editorLines.splice(idx + 1, 0, ...tail.map(s => stringToSegments(s, 'print')));
       renderPreview();
     }
 
@@ -1453,7 +1456,7 @@
     function cascadeOverflow(idx) {
       const avail = availableWidthPx();
       while (idx < editorLines.length) {
-        const text = editorLines[idx];
+        const text = segmentsToString(editorLines[idx]);
         if (measureLinePixelWidth(text) <= avail) return;
         const tokens = text.match(/\S+|\s+/g) || [];
         let current = '';
@@ -1469,13 +1472,13 @@
         if (split < 0) return;  // single unbreakable word
         const firstPart = current;
         const rest = tokens.slice(split).join('').trimStart();
-        editorLines[idx] = firstPart;
+        editorLines[idx] = stringToSegments(firstPart, 'print');
         if (idx + 1 < editorLines.length) {
-          const nextLine = editorLines[idx + 1];
-          const joiner = (rest.endsWith(' ') || nextLine.startsWith(' ') || nextLine === '') ? '' : ' ';
-          editorLines[idx + 1] = rest + joiner + nextLine;
+          const nextStr = segmentsToString(editorLines[idx + 1]);
+          const joiner = (rest.endsWith(' ') || nextStr.startsWith(' ') || nextStr === '') ? '' : ' ';
+          editorLines[idx + 1] = stringToSegments(rest + joiner + nextStr, 'print');
         } else {
-          editorLines.push(rest);
+          editorLines.push(stringToSegments(rest, 'print'));
         }
         idx++;
       }
@@ -1496,7 +1499,8 @@
       const firstLen = (function() {
         // We need to know where the first line ends after cascade, to
         // decide where the caret belongs.
-        const tokens = (editorLines[idx] || '').match(/\S+|\s+/g) || [];
+        const str = segmentsToString(editorLines[idx] || []);
+        const tokens = str.match(/\S+|\s+/g) || [];
         let current = '';
         for (let i = 0; i < tokens.length; i++) {
           const test = current + tokens[i];
@@ -1514,7 +1518,7 @@
       } else {
         const g = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
         const l = g && g.querySelector('.editable-line');
-        if (l) setCaretOffset(l, Math.min(caretOffset - firstLen, (editorLines[idx + 1] || '').length));
+        if (l) setCaretOffset(l, Math.min(caretOffset - firstLen, segmentsToString(editorLines[idx + 1] || []).length));
       }
     }
 
