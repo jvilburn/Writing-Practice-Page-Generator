@@ -1438,6 +1438,31 @@
     }
 
     // Caret helpers (text offset within a single-line contenteditable)
+    // Font of the character to the LEFT of offset in this line. If offset === 0,
+    // use the font of the character to the right. If the line is empty, use activeFont.
+    function fontAtCaret(line, offset) {
+      if (!line || line.length === 0) return activeFont;
+      if (offset > 0) {
+        // Find segment containing offset-1
+        let pos = 0;
+        for (const seg of line) {
+          if (offset - 1 < pos + seg.text.length) return seg.font;
+          pos += seg.text.length;
+        }
+        return line[line.length - 1].font;
+      }
+      // offset === 0: use rightward neighbor
+      return line[0].font;
+    }
+
+    // Character offset of an arbitrary (container, offset) pair inside `el`.
+    function getCaretOffsetAtRange(el, container, offset) {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      r.setEnd(container, offset);
+      return r.toString().length;
+    }
+
     function getCaretOffset(el) {
       const sel = window.getSelection();
       if (!sel.rangeCount) return 0;
@@ -1496,7 +1521,9 @@
     function wireEditing() {
       const lines = $$('.editable-line');
       lines.forEach(line => {
-        // Update editorLines state + trigger a partial re-render of siblings
+        line.addEventListener('beforeinput', onEditableBeforeInput);
+        // 'input' still fires for inputTypes we didn't intercept (IME
+        // composition, etc.). Best-effort: keep the DOM as source of truth.
         line.addEventListener('input', () => {
           syncEditorLinesFromDOM();
           wrapCurrentLineIfTooLong(line);
@@ -1506,6 +1533,49 @@
         line.addEventListener('paste', onEditablePaste);
       });
     }
+
+    // Caret moves / selection changes → sync activeFont to the character
+    // on the LEFT of the caret (or right, at line start). Mixed selections
+    // put the toolbar into a "mixed" indeterminate state.
+    // Attached once at module load; no-op if caret isn't inside an editable line.
+    document.addEventListener('selectionchange', () => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      let node = range.startContainer;
+      while (node && node !== document && !(node.classList && node.classList.contains('editable-line'))) {
+        node = node.parentNode;
+      }
+      if (!node || !node.classList || !node.classList.contains('editable-line')) return;
+      const group = node.closest('.line-group');
+      if (!group) return;
+      const idx = parseInt(group.dataset.lineIdx, 10);
+      if (!Number.isFinite(idx)) return;
+      const offset = getCaretOffsetAtRange(node, range.startContainer, range.startOffset);
+      if (!sel.isCollapsed) {
+        const endOffset = getCaretOffsetAtRange(node, range.endContainer, range.endOffset);
+        const lo = Math.min(offset, endOffset);
+        const hi = Math.max(offset, endOffset);
+        const segs = sliceSegments(editorLines[idx] || [], lo, hi);
+        const fonts = new Set(segs.map(s => s.font));
+        if (fonts.size > 1) {
+          $$('#fontSeg .seg').forEach(b => {
+            b.classList.remove('active');
+            b.classList.add('mixed');
+            b.setAttribute('aria-pressed', 'false');
+          });
+          return;
+        }
+      }
+      const f = fontAtCaret(editorLines[idx], offset);
+      if (activeFont !== f) {
+        activeFont = f;
+        updateFontToolbar();
+      } else {
+        // ensure any 'mixed' styling is cleared even when font didn't change
+        updateFontToolbar();
+      }
+    });
 
     function syncEditorLinesFromDOM() {
       // Walk each editable line's <span data-font="..."> children and build
@@ -1544,6 +1614,70 @@
       });
     }
 
+    function onEditableBeforeInput(e) {
+      const el = e.currentTarget;
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      const myGroup = el.closest('.line-group');
+      if (!myGroup) return;
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const start = getCaretOffsetAtRange(el, range.startContainer, range.startOffset);
+      const end = getCaretOffsetAtRange(el, range.endContainer, range.endOffset);
+      const [lo, hi] = start <= end ? [start, end] : [end, start];
+
+      if (e.inputType === 'insertText' && e.data != null) {
+        e.preventDefault();
+        const ch = e.data;
+        applyEdit(idx, lo, hi, [{ font: activeFont, text: ch }]);
+        setCaretOffset(el, lo + ch.length);
+        // Width may now exceed paper; cascade any overflow
+        wrapCurrentLineIfTooLong(el);
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      if (e.inputType === 'deleteContentBackward') {
+        e.preventDefault();
+        if (lo === hi && lo === 0) {
+          // Backspace at start of line: merge with previous line (preserving
+          // both lines' full Segment[] content — no flattening).
+          if (idx === 0) return;
+          const prev = editorLines[idx - 1];
+          const prevLen = lineLength(prev);
+          editorLines[idx - 1] = coalesceSegments([...prev, ...editorLines[idx]]);
+          editorLines.splice(idx, 1);
+          renderPreview();
+          const g = $$('.line-group')[indexOfGroupForLineIdx(idx - 1)];
+          const l = g && g.querySelector('.editable-line');
+          if (l) setCaretOffset(l, prevLen);
+          return;
+        }
+        if (lo === hi) {
+          applyEdit(idx, lo - 1, lo, []);
+          setCaretOffset(el, lo - 1);
+        } else {
+          applyEdit(idx, lo, hi, []);
+          setCaretOffset(el, lo);
+        }
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      if (e.inputType === 'deleteContentForward') {
+        e.preventDefault();
+        if (lo === hi) {
+          const ll = lineLength(editorLines[idx]);
+          if (lo < ll) applyEdit(idx, lo, lo + 1, []);
+        } else {
+          applyEdit(idx, lo, hi, []);
+        }
+        setCaretOffset(el, lo);
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      // Other input types (composition, paste, etc.) fall through to the
+      // default browser handling; the input event will resync state.
+    }
+
     function onEditableKeydown(e) {
       const el = e.currentTarget;
       if (e.key === 'Enter') {
@@ -1568,29 +1702,7 @@
         }
         return;
       }
-      if (e.key === 'Backspace') {
-        const offset = getCaretOffset(el);
-        if (offset === 0) {
-          // Merge with previous editable line
-          syncEditorLinesFromDOM();
-          const myGroup = el.closest('.line-group');
-          const idx = parseInt(myGroup.dataset.lineIdx, 10);
-          if (idx === 0) { e.preventDefault(); return; }
-          e.preventDefault();
-          const prevText = segmentsToString(editorLines[idx - 1]);
-          const mergedOffset = prevText.length;
-          // TODO(Task 7): concat Segment[] directly to preserve fonts on merge
-          editorLines[idx - 1] = stringToSegments(prevText + segmentsToString(editorLines[idx]), 'print');
-          editorLines.splice(idx, 1);
-          renderPreview();
-          const prevGroup = $$('.line-group')[indexOfGroupForLineIdx(idx - 1)];
-          if (prevGroup) {
-            const prevLine = prevGroup.querySelector('.editable-line');
-            if (prevLine) setCaretOffset(prevLine, mergedOffset);
-          }
-          return;
-        }
-      }
+      // Backspace is handled in onEditableBeforeInput (deleteContentBackward).
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
         const myGroup = el.closest('.line-group');
