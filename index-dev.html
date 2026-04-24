@@ -1337,6 +1337,7 @@
         syncEditorLinesFromDOM();
         const myGroup = el.closest('.line-group');
         const idx = parseInt(myGroup.dataset.lineIdx, 10);
+        // TODO(Task 7): split Segment[] directly to preserve fonts across Enter
         editorLines.splice(idx + 1, 0, stringToSegments(after, 'print'));
         renderPreview();
         // Focus the new line at offset 0
@@ -1358,6 +1359,7 @@
           e.preventDefault();
           const prevText = segmentsToString(editorLines[idx - 1]);
           const mergedOffset = prevText.length;
+          // TODO(Task 7): concat Segment[] directly to preserve fonts on merge
           editorLines[idx - 1] = stringToSegments(prevText + segmentsToString(editorLines[idx]), 'print');
           editorLines.splice(idx, 1);
           renderPreview();
@@ -1453,6 +1455,9 @@
     // Split one line at the last fitting word boundary, cascading the overflow
     // into editorLines[idx+1] (merging, not creating a new entry). Repeats
     // for idx+1 until every downstream line fits.
+    // TODO(Task 9): preserve fonts when splitting across wrap boundary.
+    // Currently rewraps as pure print; once mixed fonts are in use this will
+    // need segment-aware splicing.
     function cascadeOverflow(idx) {
       const avail = availableWidthPx();
       while (idx < editorLines.length) {
