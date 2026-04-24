@@ -310,10 +310,12 @@
 
       <div class="control-group">
         <h3>Font at caret</h3>
-        <div class="segmented" id="fontSeg">
+        <div class="segmented" id="fontSeg" role="group" aria-label="Font at caret">
           <button type="button" class="seg active" data-font="print"
+                  aria-pressed="true"
                   style="font-family: 'Schoolroom', sans-serif;">Print</button>
           <button type="button" class="seg" data-font="cursive"
+                  aria-pressed="false"
                   style="font-family: 'FRBCursive', cursive; font-feature-settings: 'calt' 1;">Cursive</button>
         </div>
       </div>
@@ -461,8 +463,10 @@
     function updateFontToolbar() {
       const buttons = $$('#fontSeg .seg');
       buttons.forEach(b => {
-        b.classList.toggle('active', b.dataset.font === activeFont);
+        const active = b.dataset.font === activeFont;
+        b.classList.toggle('active', active);
         b.classList.remove('mixed');
+        b.setAttribute('aria-pressed', active ? 'true' : 'false');
       });
     }
 
@@ -1701,15 +1705,13 @@
       $('#strokeGuide').addEventListener('change', renderPreview);
       $('#printBtn').addEventListener('click', () => window.print());
 
-      // Font-at-caret segmented control
+      // Font-at-caret segmented control. Prevent the button from stealing
+      // focus on mousedown so the editable line keeps the caret and any
+      // selection — that's the whole point of "font at caret".
       $$('#fontSeg .seg').forEach(btn => {
+        btn.addEventListener('mousedown', e => e.preventDefault());
         btn.addEventListener('click', () => {
           setActiveFont(btn.dataset.font);
-          // Return focus to the last-focused editable line
-          const active = document.activeElement;
-          if (active && active.classList && active.classList.contains('editable-line')) {
-            active.focus();
-          }
         });
       });
     }
