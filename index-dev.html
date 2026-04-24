@@ -432,9 +432,13 @@
       return str.length === 0 ? [] : [{ font, text: str }];
     }
 
+    const VALID_FONTS = new Set(['print', 'cursive']);
     function coalesceSegments(segs) {
       const out = [];
       for (const s of segs) {
+        if (!VALID_FONTS.has(s.font)) {
+          throw new Error(`Invalid segment font: ${JSON.stringify(s.font)}`);
+        }
         if (s.text.length === 0) continue;
         const last = out[out.length - 1];
         if (last && last.font === s.font) {
