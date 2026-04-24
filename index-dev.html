@@ -1756,6 +1756,12 @@
       }
       // Multi-line paste: current line keeps head + first piece; middle pieces
       // become new lines; last piece prepends to what follows the selection.
+      // Edge cases handled:
+      //   - Trailing `\n` (pieces end in ""): last line becomes the tail
+      //     prefixed by "" (coalesced to just the tail, or [] if tail empty).
+      //     [] is a valid empty editable line (rendered with one empty span).
+      //   - Pure "\n" paste (pieces = ["", ""]): inserts an empty line below,
+      //     leaving the current line unchanged; matches Enter-at-caret.
       const line = editorLines[idx];
       const head = sliceSegments(line, 0, lo);
       const tail = sliceSegments(line, hi, lineLength(line));
@@ -1765,10 +1771,18 @@
       );
       const lastLine = coalesceSegments([{ font: activeFont, text: pieces[pieces.length - 1] }, ...tail]);
       editorLines.splice(idx + 1, 0, ...middleLines, lastLine);
+      // Any pasted line that exceeds the paper width gets cascaded into
+      // subsequent lines (flows into or past the pasted "last line" tail).
+      ensureLinesFit();
       renderPreview();
-      // Restore caret at the end of the pasted content (start of tail on last line)
-      const targetLineIdx = idx + pieces.length - 1;
-      const targetCaret = pieces[pieces.length - 1].length;
+      // Attempt to restore caret at the end of the pasted content. After
+      // ensureLinesFit the target line may have shifted; clamp to the last
+      // available line if the computed index is out of bounds.
+      const nominalTargetIdx = idx + pieces.length - 1;
+      const targetLineIdx = Math.min(nominalTargetIdx, editorLines.length - 1);
+      const targetCaret = (targetLineIdx === nominalTargetIdx)
+        ? pieces[pieces.length - 1].length
+        : lineLength(editorLines[targetLineIdx]);
       const g = $$('.line-group')[indexOfGroupForLineIdx(targetLineIdx)];
       const l = g && g.querySelector('.editable-line');
       if (l) setCaretOffset(l, targetCaret);
