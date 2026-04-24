@@ -197,6 +197,19 @@
       right: 0;
       border-top: 1.5px solid #999;
     }
+    .editable-line {
+      outline: none;
+    }
+    /* Repetition lines: visible text but not interactive. Only the text layer
+       is non-interactive; the line-group/ruled background stays visible. */
+    .line-group.repetition svg,
+    .line-group.repetition .editable-line {
+      pointer-events: none;
+    }
+    /* Hide the caret when not editing */
+    @media print {
+      .editable-line { outline: none !important; box-shadow: none !important; }
+    }
     /* Preview Container */
     #preview-container {
       flex: 1;
@@ -290,19 +303,6 @@
       </div>
 
       <div class="control-group">
-        <h3>Content</h3>
-        <label><input type="radio" name="content" value="alphabet" checked> Full Alphabet</label>
-        <label><input type="radio" name="content" value="custom"> Custom</label>
-        <div id="alphabetOptions">
-          <label><input type="checkbox" id="uppercase" checked> Uppercase</label>
-          <label><input type="checkbox" id="lowercase" checked> Lowercase</label>
-        </div>
-        <div id="customInput" class="hidden">
-          <textarea id="customText" placeholder="Type words or sentences here..."></textarea>
-        </div>
-      </div>
-
-      <div class="control-group">
         <h3>Font Size</h3>
         <input type="range" id="fontSize" min="24" max="72" value="48">
         <span class="range-value" id="fontSizeValue">48px</span>
@@ -343,18 +343,9 @@
 
     function updateVisibility() {
       const mode = getVal('mode');
-      const content = getVal('content');
-
       // Trace reps vs blank lines
       $('#traceRepGroup').classList.toggle('hidden', mode !== 'trace');
       $('#blankLinesGroup').classList.toggle('hidden', mode !== 'copy');
-
-      // Alphabet options vs custom textarea
-      $('#alphabetOptions').classList.toggle('hidden', content !== 'alphabet');
-      $('#customInput').classList.toggle('hidden', content !== 'custom');
-
-      // Stroke guidance only available for print mode
-      const letterStyle = getVal('letterStyle');
     }
 
     // Measure actual font metrics using canvas pixel scanning
@@ -423,18 +414,50 @@
       $('#fontSizeValue').textContent = $('#fontSize').value + 'px';
     }
 
-    function getContent() {
-      const contentType = getVal('content');
-      if (contentType === 'alphabet') {
-        const parts = [];
-        if ($('#uppercase').checked) parts.push('A B C D E F G H I J K L M N O P Q R S T U V W X Y Z');
-        if ($('#lowercase').checked) parts.push('a b c d e f g h i j k l m n o p q r s t u v w x y z');
-        return parts.length ? parts : ['A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'];
+    // Source-of-truth content. Initially the default alphabet; replaced by
+    // the contents of editable lines in the preview as the user types.
+    let editorLines = [
+      'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z',
+      'a b c d e f g h i j k l m n o p q r s t u v w x y z',
+    ];
+
+    // A line is a Segment[]: an ordered list of runs, each with its own font.
+    // Segments within a line never cross line boundaries. Adjacent same-font
+    // segments are always coalesced by mutators — callers can assume this.
+    function segmentsToString(segs) {
+      return segs.map(s => s.text).join('');
+    }
+
+    function stringToSegments(str, font = 'print') {
+      return str.length === 0 ? [] : [{ font, text: str }];
+    }
+
+    function coalesceSegments(segs) {
+      const out = [];
+      for (const s of segs) {
+        if (s.text.length === 0) continue;
+        const last = out[out.length - 1];
+        if (last && last.font === s.font) {
+          last.text += s.text;
+        } else {
+          out.push({ font: s.font, text: s.text });
+        }
       }
-      const text = $('#customText').value.trim();
-      if (!text) return [];
-      // Preserve extra spaces between words (used for wider spacing)
-      return text.split('\n').filter(line => line.trim());
+      return out;
+    }
+
+    // Total character length of a line (sum of segment text lengths).
+    function lineLength(segs) {
+      let n = 0;
+      for (const s of segs) n += s.text.length;
+      return n;
+    }
+
+
+    function getContent() {
+      // editorLines is the source of truth; it's kept in sync with the DOM
+      // via syncEditorLinesFromDOM() on every input event.
+      return editorLines.slice();
     }
 
     function createLineGroup(lineStyle, writingHeight, gap, midRatio) {
@@ -966,7 +989,7 @@
       return guidance ? 'FRBCursiveArrow' : 'FRBCursive';
     }
 
-    function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance) {
+    function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance, editable, lineStyle) {
       let fontFamily, features;
       if (letterStyle === 'cursive') {
         fontFamily = `'${getCursiveFont(mode, guidance)}'`;
@@ -976,14 +999,14 @@
         features = '';
       }
       // Cap-height-based sizing. capHeight is the actual glyph-outline yMax
-      // of the reference glyph 'H' (not OS/2.sCapHeight, which lies in the
-      // FRB font — declares 700 but H only reaches 572). Measured directly
-      // from each font file; update if the fonts are modified.
+      // of the reference glyph 'H'. ascent/descent come from hhea.ascent and
+      // |hhea.descent| and are used to compute baseline position within CSS
+      // line-boxes. All measured directly from the font files.
       const FONT_METRICS = {
-        'Schoolroom':         { upm: 1000, capHeight: 688 },
-        'SchoolroomGuidance': { upm: 1000, capHeight: 688 },
-        'FRBCursive':         { upm: 1000, capHeight: 572 },
-        'FRBCursiveArrow':    { upm: 1000, capHeight: 572 },
+        'Schoolroom':         { upm: 1000, capHeight: 688, ascent: 1000, descent: 260 },
+        'SchoolroomGuidance': { upm: 1000, capHeight: 688, ascent: 1000, descent: 260 },
+        'FRBCursive':         { upm: 1000, capHeight: 572, ascent: 650,  descent: 350 },
+        'FRBCursiveArrow':    { upm: 1000, capHeight: 572, ascent: 650,  descent: 350 },
       };
       const famKey = fontFamily.replace(/['"\s,]/g, '').split(/sans-serif|cursive/)[0];
       const metrics = FONT_METRICS[famKey];
@@ -993,7 +1016,96 @@
       //   fontSize = writingHeight * upm / capHeight
       const fontSizeAll = writingHeight * metrics.upm / metrics.capHeight;
 
-      // Single SVG with one <text> element, tspans for per-character font size
+      // Editable path: use HTML contenteditable div, with baseline position
+      // CALIBRATED via DOM measurement (reliable across browsers/fonts).
+      const yOffset = letterStyle === 'cursive' ? (1 + writingHeight * 0.02) : 1;
+      const targetBaseline = writingHeight - yOffset;
+
+      if (editable) {
+        // Editable line IS the line-group: a contenteditable element with
+        // ruled lines drawn as a repeating background. Text and lines share
+        // the same layout context, so the text baseline lands on the ruled
+        // baseline automatically.
+        //
+        // We measure the ACTUAL baseline position after rendering (CSS math
+        // for line-box internals is too browser-dependent to trust), then
+        // apply the ruled-line background with correct offsets.
+        const F = fontSizeAll;
+        const ascentPx = F * metrics.ascent / metrics.upm;
+        const descentPx = F * metrics.descent / metrics.upm;
+        const L = ascentPx + descentPx;
+
+        const div = document.createElement('div');
+        div.className = 'editable-line';
+        div.contentEditable = 'plaintext-only';
+        div.spellcheck = false;
+        div.textContent = text;
+        div.style.cssText = `
+          position: relative;
+          margin: 0;
+          padding: 0;
+          font-family: ${fontFamily};
+          font-size: ${F}px;
+          line-height: ${L}px;
+          color: ${color};
+          white-space: pre-wrap;
+          outline: none;
+          cursor: text;
+          min-height: ${L}px;
+          ${features}
+        `;
+        if (letterStyle === 'cursive') {
+          div.style.fontFeatureSettings = '"calt" 1';
+          if (guidance && mode === 'trace') div.style.fontPalette = '--FRBCursiveArrowTrace';
+        } else {
+          div.style.fontFeatureSettings = '"liga" 0';
+          if (guidance && mode === 'trace') div.style.fontPalette = '--SchoolroomGuidanceTrace';
+        }
+        group.innerHTML = '';
+        group.style.height = L + 'px';
+        group.appendChild(div);
+
+        // Measure the actual baseline position inside the div using a
+        // zero-size inline-block with vertical-align: baseline. Its bottom
+        // edge coincides exactly with the first line's baseline.
+        const probe = document.createElement('span');
+        probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;';
+        div.insertBefore(probe, div.firstChild);
+        const probeRect = probe.getBoundingClientRect();
+        const divRect = div.getBoundingClientRect();
+        const baselineY = probeRect.bottom - divRect.top;
+        div.removeChild(probe);
+
+        const capTopY = baselineY - writingHeight;
+        const midY = capTopY + writingHeight * 0.5;
+        // 'ruled' = 3-line (top, mid, base). Anything else = baseline only.
+        const showRuled = lineStyle === 'ruled';
+
+        const bgParts = [`transparent 0`];
+        if (showRuled) {
+          bgParts.push(
+            `transparent ${capTopY - 0.5}px`,
+            `#999 ${capTopY - 0.5}px`,
+            `#999 ${capTopY + 0.5}px`,
+            `transparent ${capTopY + 0.5}px`,
+            `transparent ${midY - 0.5}px`,
+            `#ccc ${midY - 0.5}px`,
+            `#ccc ${midY + 0.5}px`,
+            `transparent ${midY + 0.5}px`,
+          );
+        }
+        bgParts.push(
+          `transparent ${baselineY - 0.75}px`,
+          `#999 ${baselineY - 0.75}px`,
+          `#999 ${baselineY + 0.75}px`,
+          `transparent ${baselineY + 0.75}px`,
+          `transparent ${L}px`,
+        );
+        div.style.backgroundImage = `repeating-linear-gradient(to bottom, ${bgParts.join(', ')})`;
+        return;
+      }
+
+      // Single SVG with one <text> element for non-editable display.
       const svgNS = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(svgNS, 'svg');
       svg.setAttribute('width', '100%');
@@ -1008,16 +1120,13 @@
 
       const textEl = document.createElementNS(svgNS, 'text');
       textEl.setAttribute('x', '0');
-      const yOffset = letterStyle === 'cursive' ? (1 + writingHeight * 0.02) : 1;
-      textEl.setAttribute('y', writingHeight - yOffset);
+      textEl.setAttribute('y', targetBaseline);
       textEl.setAttribute('dominant-baseline', 'alphabetic');
       textEl.setAttribute('font-family', fontFamily);
       textEl.setAttribute('fill', color);
       textEl.setAttribute('font-size', fontSizeAll + 'px');
       if (letterStyle === 'cursive') {
         textEl.style.fontFeatureSettings = '"calt" 1';
-        // For the color guidance font, use palette override in trace mode
-        // to gray the letters while keeping arrows red
         if (guidance && mode === 'trace') {
           textEl.style.fontPalette = '--FRBCursiveArrowTrace';
         }
@@ -1106,24 +1215,31 @@
         return wrapped;
       }
 
-      const content = wrapLines(getContent());
-      if (content.length === 0 && getVal('content') === 'custom') {
-        const msg = document.createElement('p');
-        msg.textContent = 'Type words or sentences in the controls panel...';
-        msg.style.cssText = 'color: #aaa; font-style: italic; padding-top: 40px; text-align: center;';
-        preview.appendChild(msg);
-        return;
-      }
+      // Ensure every line in editorLines fits within the page width, cascading
+      // overflow into subsequent lines (not creating extra ones).
+      ensureLinesFit();
+      let content = getContent();
+      if (content.length === 0) { editorLines = ['']; content = ['']; }
 
       let linesUsed = 0;
 
       if (mode === 'trace') {
-        // Trace mode: repeat each content line traceReps times
-        for (const line of content) {
-          for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
+        // Trace mode: editable source line, then (reps-1) read-only copies
+        for (let ci = 0; ci < content.length; ci++) {
+          const line = content[ci];
+          // Editable source line (first of the group)
+          if (linesUsed >= maxLines) break;
+          const sourceGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+          sourceGroup.dataset.lineIdx = String(ci);
+          preview.appendChild(sourceGroup);
+          addTextToLine(sourceGroup, line, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, true, lineStyle);
+          linesUsed++;
+          // Repetitions (read-only)
+          for (let r = 1; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+            group.classList.add('repetition');
             preview.appendChild(group);
-            addTextToLine(group, line, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance);
+            addTextToLine(group, line, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, false, lineStyle);
             linesUsed++;
           }
         }
@@ -1133,25 +1249,284 @@
           linesUsed++;
         }
       } else {
-        // Copy mode: model line, then N blank lines
-        for (const line of content) {
+        // Copy mode: editable model line, then N blank practice lines
+        for (let ci = 0; ci < content.length; ci++) {
+          const line = content[ci];
           if (linesUsed >= maxLines) break;
-          // Model line
           const modelGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+          modelGroup.dataset.lineIdx = String(ci);
           preview.appendChild(modelGroup);
-          addTextToLine(modelGroup, line, fontSize, writingHeight, '#000', letterStyle, mode, guidance);
+          addTextToLine(modelGroup, line, fontSize, writingHeight, '#000', letterStyle, mode, guidance, true, lineStyle);
           linesUsed++;
-          // Blank practice lines
           for (let b = 0; b < blankLines && linesUsed < maxLines; b++) {
             preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
             linesUsed++;
           }
         }
-        // Fill remaining with blank lines
         while (linesUsed < maxLines) {
           preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
           linesUsed++;
         }
+      }
+
+      wireEditing();
+    }
+
+    // Caret helpers (text offset within a single-line contenteditable)
+    function getCaretOffset(el) {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return 0;
+      const range = sel.getRangeAt(0);
+      if (!el.contains(range.startContainer)) return 0;
+      const pre = range.cloneRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(range.startContainer, range.startOffset);
+      return pre.toString().length;
+    }
+    function setCaretOffset(el, offset) {
+      el.focus();
+      const sel = window.getSelection();
+      const range = document.createRange();
+      const node = el.firstChild;
+      if (node && node.nodeType === Node.TEXT_NODE) {
+        range.setStart(node, Math.min(offset, node.textContent.length));
+      } else {
+        range.setStart(el, 0);
+      }
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    function wireEditing() {
+      const lines = $$('.editable-line');
+      lines.forEach(line => {
+        // Update editorLines state + trigger a partial re-render of siblings
+        line.addEventListener('input', () => {
+          syncEditorLinesFromDOM();
+          wrapCurrentLineIfTooLong(line);
+          rerenderSiblingsForLine(line);
+        });
+        line.addEventListener('keydown', onEditableKeydown);
+        line.addEventListener('paste', onEditablePaste);
+      });
+    }
+
+    function syncEditorLinesFromDOM() {
+      const eds = $$('.editable-line');
+      editorLines = Array.from(eds).map(el => el.textContent);
+    }
+
+    function onEditableKeydown(e) {
+      const el = e.currentTarget;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const offset = getCaretOffset(el);
+        const text = el.textContent;
+        const before = text.slice(0, offset);
+        const after = text.slice(offset);
+        el.textContent = before;
+        // Insert a new line after the current one in editorLines
+        syncEditorLinesFromDOM();
+        const myGroup = el.closest('.line-group');
+        const idx = parseInt(myGroup.dataset.lineIdx, 10);
+        editorLines.splice(idx + 1, 0, after);
+        renderPreview();
+        // Focus the new line at offset 0
+        const newGroup = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
+        if (newGroup) {
+          const newLine = newGroup.querySelector('.editable-line');
+          if (newLine) setCaretOffset(newLine, 0);
+        }
+        return;
+      }
+      if (e.key === 'Backspace') {
+        const offset = getCaretOffset(el);
+        if (offset === 0) {
+          // Merge with previous editable line
+          syncEditorLinesFromDOM();
+          const myGroup = el.closest('.line-group');
+          const idx = parseInt(myGroup.dataset.lineIdx, 10);
+          if (idx === 0) { e.preventDefault(); return; }
+          e.preventDefault();
+          const prevText = editorLines[idx - 1];
+          const mergedOffset = prevText.length;
+          editorLines[idx - 1] = prevText + editorLines[idx];
+          editorLines.splice(idx, 1);
+          renderPreview();
+          const prevGroup = $$('.line-group')[indexOfGroupForLineIdx(idx - 1)];
+          if (prevGroup) {
+            const prevLine = prevGroup.querySelector('.editable-line');
+            if (prevLine) setCaretOffset(prevLine, mergedOffset);
+          }
+          return;
+        }
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const myGroup = el.closest('.line-group');
+        const idx = parseInt(myGroup.dataset.lineIdx, 10);
+        const targetIdx = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
+        if (targetIdx < 0 || targetIdx >= editorLines.length) return;
+        const targetGroup = $$('.line-group')[indexOfGroupForLineIdx(targetIdx)];
+        if (targetGroup) {
+          const targetLine = targetGroup.querySelector('.editable-line');
+          if (targetLine) {
+            const offset = Math.min(getCaretOffset(el), targetLine.textContent.length);
+            setCaretOffset(targetLine, offset);
+          }
+        }
+      }
+    }
+
+    function onEditablePaste(e) {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      if (!text) return;
+      const el = e.currentTarget;
+      const offset = getCaretOffset(el);
+      const myText = el.textContent;
+      const pieces = text.split(/\r?\n/);
+      if (pieces.length === 1) {
+        el.textContent = myText.slice(0, offset) + pieces[0] + myText.slice(offset);
+        setCaretOffset(el, offset + pieces[0].length);
+        syncEditorLinesFromDOM();
+        wrapCurrentLineIfTooLong(el);
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      // Multi-line paste: current line gets first+before+after[0], rest become new lines
+      el.textContent = myText.slice(0, offset) + pieces[0];
+      const myGroup = el.closest('.line-group');
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const tail = pieces.slice(1);
+      tail[tail.length - 1] = tail[tail.length - 1] + myText.slice(offset);
+      syncEditorLinesFromDOM();
+      editorLines.splice(idx + 1, 0, ...tail);
+      renderPreview();
+    }
+
+    // Find which .line-group is the editable source group for a given editorLines index
+    function indexOfGroupForLineIdx(lineIdx) {
+      const groups = $$('.line-group');
+      for (let i = 0; i < groups.length; i++) {
+        if (groups[i].dataset.lineIdx === String(lineIdx)) return i;
+      }
+      return -1;
+    }
+
+    // Measure the rendered width of a line using canvas, matching addTextToLine font
+    function measureLinePixelWidth(text) {
+      const letterStyle = getVal('letterStyle');
+      const guidance = $('#strokeGuide').checked;
+      const fontFamily = letterStyle === 'cursive'
+        ? `'${getCursiveFont(getVal('mode'), guidance)}'`
+        : (guidance ? "'SchoolroomGuidance'" : "'Schoolroom'");
+      const writingHeight = parseInt($('#fontSize').value);
+      const FM = {
+        'Schoolroom':         { upm: 1000, capHeight: 688 },
+        'SchoolroomGuidance': { upm: 1000, capHeight: 688 },
+        'FRBCursive':         { upm: 1000, capHeight: 572 },
+        'FRBCursiveArrow':    { upm: 1000, capHeight: 572 },
+      };
+      const famKey = fontFamily.replace(/['"\s,]/g, '');
+      const m = FM[famKey] || FM['Schoolroom'];
+      const fs = writingHeight * m.upm / m.capHeight;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = `${fs}px ${fontFamily}`;
+      return ctx.measureText(text).width;
+    }
+
+    function availableWidthPx() {
+      const paperWidthIn = getVal('orientation') === 'landscape' ? 11 : 8.5;
+      return (paperWidthIn - 1) * 96;
+    }
+
+    // Split one line at the last fitting word boundary, cascading the overflow
+    // into editorLines[idx+1] (merging, not creating a new entry). Repeats
+    // for idx+1 until every downstream line fits.
+    function cascadeOverflow(idx) {
+      const avail = availableWidthPx();
+      while (idx < editorLines.length) {
+        const text = editorLines[idx];
+        if (measureLinePixelWidth(text) <= avail) return;
+        const tokens = text.match(/\S+|\s+/g) || [];
+        let current = '';
+        let split = -1;
+        for (let i = 0; i < tokens.length; i++) {
+          const test = current + tokens[i];
+          if (measureLinePixelWidth(test) > avail && current.trim().length > 0) {
+            split = i;
+            break;
+          }
+          current = test;
+        }
+        if (split < 0) return;  // single unbreakable word
+        const firstPart = current;
+        const rest = tokens.slice(split).join('').trimStart();
+        editorLines[idx] = firstPart;
+        if (idx + 1 < editorLines.length) {
+          const nextLine = editorLines[idx + 1];
+          const joiner = (rest.endsWith(' ') || nextLine.startsWith(' ') || nextLine === '') ? '' : ' ';
+          editorLines[idx + 1] = rest + joiner + nextLine;
+        } else {
+          editorLines.push(rest);
+        }
+        idx++;
+      }
+    }
+
+    // Make sure every line fits; used on initial load and whenever needed.
+    function ensureLinesFit() {
+      for (let i = 0; i < editorLines.length; i++) cascadeOverflow(i);
+    }
+
+    function wrapCurrentLineIfTooLong(el) {
+      const avail = availableWidthPx();
+      if (measureLinePixelWidth(el.textContent) <= avail) return;
+      const myGroup = el.closest('.line-group');
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const caretOffset = getCaretOffset(el);
+      // editorLines already synced from DOM at start of input handler
+      const firstLen = (function() {
+        // We need to know where the first line ends after cascade, to
+        // decide where the caret belongs.
+        const tokens = (editorLines[idx] || '').match(/\S+|\s+/g) || [];
+        let current = '';
+        for (let i = 0; i < tokens.length; i++) {
+          const test = current + tokens[i];
+          if (measureLinePixelWidth(test) > avail && current.trim().length > 0) break;
+          current = test;
+        }
+        return current.length;
+      })();
+      cascadeOverflow(idx);
+      renderPreview();
+      if (caretOffset <= firstLen) {
+        const g = $$('.line-group')[indexOfGroupForLineIdx(idx)];
+        const l = g && g.querySelector('.editable-line');
+        if (l) setCaretOffset(l, caretOffset);
+      } else {
+        const g = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
+        const l = g && g.querySelector('.editable-line');
+        if (l) setCaretOffset(l, Math.min(caretOffset - firstLen, (editorLines[idx + 1] || '').length));
+      }
+    }
+
+    // Update only the sibling repetition lines (trace mode) — leave the
+    // actively edited div untouched so the caret stays where it is.
+    function rerenderSiblingsForLine(el) {
+      if (getVal('mode') !== 'trace') return;  // copy mode: no siblings to update
+      const myGroup = el.closest('.line-group');
+      if (!myGroup) return;
+      const newText = el.textContent;
+      let next = myGroup.nextElementSibling;
+      // Walk forward through repetition siblings (which don't have lineIdx)
+      while (next && next.classList.contains('repetition')) {
+        const textEl = next.querySelector('text');
+        if (textEl) textEl.textContent = newText;
+        next = next.nextElementSibling;
       }
     }
 
@@ -1159,7 +1534,6 @@
     function wireControls() {
       const renderInputs = [
         ...$$('input[name="mode"]'),
-        ...$$('input[name="content"]'),
         ...$$('input[name="lineStyle"]'),
         ...$$('input[name="letterStyle"]'),
         ...$$('input[name="orientation"]'),
@@ -1177,10 +1551,7 @@
 
       $('#traceReps').addEventListener('change', renderPreview);
       $('#blankLines').addEventListener('change', renderPreview);
-      $('#uppercase').addEventListener('change', renderPreview);
-      $('#lowercase').addEventListener('change', renderPreview);
       $('#strokeGuide').addEventListener('change', renderPreview);
-      $('#customText').addEventListener('input', renderPreview);
       $('#printBtn').addEventListener('click', () => window.print());
     }
 
@@ -1209,6 +1580,9 @@
         _cachedMetrics = null;
         _cachedMetricsKey = '';
         renderPreview();
+        // Focus first editable line so typing starts working immediately
+        const first = document.querySelector('.editable-line');
+        if (first) first.focus();
       });
     }).catch(err => {
       alert(err.message + '\n\nCheck browser devtools Network tab for the failing .woff2 file.');
