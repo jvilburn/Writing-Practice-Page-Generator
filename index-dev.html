@@ -542,6 +542,13 @@
 
     // Re-render only the span children of the editable line at index idx.
     // Keeps the div element itself (so focus and the ruled background stay).
+    //
+    // ASSUMES: the line's geometry (writingHeight / fontSize / line-height /
+    // background-image) is unchanged since the last full renderPreview. If
+    // any of those change, the caller must call renderPreview() instead.
+    // Forward refs: FONT_METRICS_FOR, fontSizeFor, indexOfGroupForLineIdx
+    // are declared later in the same <script>; function declarations hoist
+    // and the `const` table is accessed only after the script has fully run.
     function rebuildLine(idx) {
       const groups = $$('.line-group');
       const g = groups[indexOfGroupForLineIdx(idx)];
@@ -549,10 +556,12 @@
       const div = g.querySelector('.editable-line');
       if (!div) return;
       div.innerHTML = '';
-      const writingHeight = parseInt($('#fontSize').value);
-      const mode = getVal('mode');
-      const guidance = $('#strokeGuide').checked;
-      const color = div.style.color || getComputedStyle(div).color;
+      // Read render-time state from the div's dataset (stashed in addTextToLine)
+      // so rebuildLine doesn't drift from live controls between full renders.
+      const writingHeight = parseInt(div.dataset.writingHeight, 10);
+      const mode = div.dataset.renderMode;
+      const guidance = div.dataset.guidance === '1';
+      const color = div.dataset.renderColor;
       const segs = (editorLines[idx] && editorLines[idx].length > 0)
         ? editorLines[idx]
         : [{ font: 'print', text: '' }];
@@ -1173,6 +1182,13 @@
         div.className = 'editable-line';
         div.contentEditable = 'plaintext-only';
         div.spellcheck = false;
+        // Stash the render-time state we need for partial rebuilds. rebuildLine
+        // reads these back so it stays in sync with the original render even
+        // if live controls change between full renderPreviews.
+        div.dataset.writingHeight = String(writingHeight);
+        div.dataset.renderMode = mode;
+        div.dataset.guidance = guidance ? '1' : '0';
+        div.dataset.renderColor = color;
         div.style.cssText = `
           position: relative;
           margin: 0;
