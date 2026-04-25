@@ -1556,6 +1556,18 @@
     // convention: a font pick is a separate "hold" from the selection.
     //
     // Attached once at module load; no-op if caret isn't inside an editable line.
+    // Track the last-processed selection so we can ignore spurious
+    // selectionchange events that don't actually move the caret.
+    let lastSelectionState = { idx: null, start: null, end: null, isMixed: false };
+
+    // activeFont auto-updates ONLY when the caret moves due to direct user
+    // navigation (mouse click in an editable line, arrow keys). Typing also
+    // moves the caret programmatically via setCaretOffset, but we don't
+    // want that to override the user's font pick. This flag is set by
+    // mousedown / arrow keydown handlers and cleared after one
+    // selectionchange consumes it.
+    let userMovedCaret = false;
+
     document.addEventListener('selectionchange', () => {
       const sel = window.getSelection();
       if (!sel.rangeCount) return;
@@ -1571,17 +1583,27 @@
       if (!Number.isFinite(idx)) return;
 
       const startOffset = getCaretOffsetAtRange(node, range.startContainer, range.startOffset);
+      let endOffset = startOffset;
       let isMixed = false;
       if (!sel.isCollapsed) {
-        const endOffset = getCaretOffsetAtRange(node, range.endContainer, range.endOffset);
+        endOffset = getCaretOffsetAtRange(node, range.endContainer, range.endOffset);
         const lo = Math.min(startOffset, endOffset);
         const hi = Math.max(startOffset, endOffset);
         const segs = sliceSegments(editorLines[idx] || [], lo, hi);
         const fonts = new Set(segs.map(s => s.font));
         isMixed = fonts.size > 1;
       }
+
+      // Skip if the selection hasn't actually moved or changed shape.
+      if (lastSelectionState.idx === idx &&
+          lastSelectionState.start === startOffset &&
+          lastSelectionState.end === endOffset &&
+          lastSelectionState.isMixed === isMixed) {
+        return;
+      }
+      lastSelectionState = { idx, start: startOffset, end: endOffset, isMixed };
+
       if (isMixed) {
-        // Leave activeFont as the user's last pick; show mixed state in toolbar.
         $$('#fontSeg .seg').forEach(b => {
           b.classList.remove('active');
           b.classList.add('mixed');
@@ -1589,9 +1611,29 @@
         });
         return;
       }
-      activeFont = fontAtCaret(editorLines[idx], startOffset);
+      // Only update activeFont when caret moved due to direct user input
+      // (mouse click, arrow keys). Programmatic moves (typing's
+      // setCaretOffset) leave activeFont alone so the user's font pick
+      // sticks across keystrokes.
+      if (userMovedCaret) {
+        userMovedCaret = false;
+        activeFont = fontAtCaret(editorLines[idx], startOffset);
+      }
       updateFontToolbar();
     });
+
+    // Mark caret moves caused by user clicks/arrows as "user-driven".
+    document.addEventListener('mousedown', e => {
+      if (findEditableLine(e.target)) userMovedCaret = true;
+    }, true);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+          e.key === 'ArrowUp'   || e.key === 'ArrowDown' ||
+          e.key === 'Home'      || e.key === 'End' ||
+          e.key === 'PageUp'    || e.key === 'PageDown') {
+        if (findEditableLine(e.target)) userMovedCaret = true;
+      }
+    }, true);
 
     function syncEditorLinesFromDOM() {
       // Walk each editable line's <span data-font="..."> children and build
