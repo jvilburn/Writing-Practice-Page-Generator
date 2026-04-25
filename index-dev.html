@@ -1202,7 +1202,8 @@
           padding: 0;
           line-height: ${L}px;
           color: ${color};
-          white-space: pre-wrap;
+          white-space: pre;
+          overflow: hidden;
           outline: none;
           cursor: text;
           min-height: ${L}px;
@@ -1863,24 +1864,26 @@
     }
 
     // Measure the rendered width of a line using canvas, matching addTextToLine font.
-    // TODO(Task 9): accept Segment[] and measure each segment with its own font.
-    function measureLinePixelWidth(text) {
+    // Measure rendered width. Accepts a Segment[] (preferred) or a plain
+    // string (legacy: treated as a single print segment).
+    function measureLinePixelWidth(input) {
       const guidance = $('#strokeGuide').checked;
-      const fontFamily = guidance ? "'SchoolroomGuidance'" : "'Schoolroom'";
       const writingHeight = parseInt($('#fontSize').value);
-      const FM = {
-        'Schoolroom':         { upm: 1000, capHeight: 688 },
-        'SchoolroomGuidance': { upm: 1000, capHeight: 688 },
-        'FRBCursive':         { upm: 1000, capHeight: 572 },
-        'FRBCursiveArrow':    { upm: 1000, capHeight: 572 },
-      };
-      const famKey = fontFamily.replace(/['"\s,]/g, '');
-      const m = FM[famKey] || FM['Schoolroom'];
-      const fs = writingHeight * m.upm / m.capHeight;
+      const segs = (typeof input === 'string')
+        ? [{ font: 'print', text: input }]
+        : input;
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
-      ctx.font = `${fs}px ${fontFamily}`;
-      return ctx.measureText(text).width;
+      let total = 0;
+      for (const seg of segs) {
+        if (!seg || !seg.text) continue;
+        const fm = FONT_METRICS_FOR[seg.font];
+        const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+        const fs = fontSizeFor(seg.font, writingHeight);
+        ctx.font = `${fs}px ${fam}`;
+        total += ctx.measureText(seg.text).width;
+      }
+      return total;
     }
 
     function availableWidthPx() {
@@ -1891,35 +1894,61 @@
     // Split one line at the last fitting word boundary, cascading the overflow
     // into editorLines[idx+1] (merging, not creating a new entry). Repeats
     // for idx+1 until every downstream line fits.
-    // TODO(Task 9): preserve fonts when splitting across wrap boundary.
-    // Currently rewraps as pure print; once mixed fonts are in use this will
-    // need segment-aware splicing.
+    // Cascade overflow from line idx into idx+1 (and beyond), preserving
+    // font runs when splitting. Each line is treated as a Segment[]; the
+    // split point is found by walking the line as a single string and then
+    // mapped back to segment-aware slices via sliceSegments.
     function cascadeOverflow(idx) {
       const avail = availableWidthPx();
       while (idx < editorLines.length) {
-        const text = segmentsToString(editorLines[idx]);
-        if (measureLinePixelWidth(text) <= avail) return;
+        const line = editorLines[idx];
+        if (measureLinePixelWidth(line) <= avail) return;
+        const text = segmentsToString(line);
         const tokens = text.match(/\S+|\s+/g) || [];
-        let current = '';
-        let split = -1;
+        // Find the largest prefix (in chars) that fits within `avail`.
+        let prefixChars = 0;
+        let lastFitChars = 0;
         for (let i = 0; i < tokens.length; i++) {
-          const test = current + tokens[i];
-          if (measureLinePixelWidth(test) > avail && current.trim().length > 0) {
-            split = i;
+          const tok = tokens[i];
+          const test = prefixChars + tok.length;
+          const candidate = sliceSegments(line, 0, test);
+          if (measureLinePixelWidth(candidate) > avail) {
+            // Don't break before any non-space content has been kept
+            if (lastFitChars === 0) {
+              lastFitChars = prefixChars;  // may be zero
+            }
             break;
           }
-          current = test;
+          prefixChars = test;
+          if (tok.trim().length > 0) lastFitChars = prefixChars;
         }
-        if (split < 0) return;  // single unbreakable word
-        const firstPart = current;
-        const rest = tokens.slice(split).join('').trimStart();
-        editorLines[idx] = stringToSegments(firstPart, 'print');
+        if (lastFitChars === 0) return;  // unbreakable run
+        // Split: head segments [0, lastFitChars), tail segments [lastFitChars, end).
+        // Trim leading whitespace off the tail (visual word-wrap behavior).
+        const head = coalesceSegments(sliceSegments(line, 0, lastFitChars));
+        let tail = sliceSegments(line, lastFitChars, lineLength(line));
+        while (tail.length > 0 && /^\s*$/.test(tail[0].text)) {
+          tail.shift();
+        }
+        if (tail.length > 0) {
+          tail[0] = { font: tail[0].font, text: tail[0].text.replace(/^\s+/, '') };
+        }
+        tail = coalesceSegments(tail);
+        editorLines[idx] = head;
         if (idx + 1 < editorLines.length) {
-          const nextStr = segmentsToString(editorLines[idx + 1]);
-          const joiner = (rest.endsWith(' ') || nextStr.startsWith(' ') || nextStr === '') ? '' : ' ';
-          editorLines[idx + 1] = stringToSegments(rest + joiner + nextStr, 'print');
+          // Concatenate tail + next line, inserting a space between if both
+          // sides have non-space content butting up against each other.
+          const next = editorLines[idx + 1];
+          const tailStr = segmentsToString(tail);
+          const nextStr = segmentsToString(next);
+          const needSpace = tailStr.length > 0 && nextStr.length > 0 &&
+                            !tailStr.endsWith(' ') && !nextStr.startsWith(' ');
+          const joiner = needSpace
+            ? [{ font: (tail[tail.length - 1] || { font: 'print' }).font, text: ' ' }]
+            : [];
+          editorLines[idx + 1] = coalesceSegments([...tail, ...joiner, ...next]);
         } else {
-          editorLines.push(stringToSegments(rest, 'print'));
+          editorLines.push(tail);
         }
         idx++;
       }
