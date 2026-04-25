@@ -1840,6 +1840,11 @@
         }
         applyFontToRange(b, 0, bOff, font);
       }
+      // Font changes can change a line's rendered width (cursive vs print
+      // metrics differ at the same cap-height). Cascade overflow + full
+      // re-render so the worksheet stays aligned to the ruled lines.
+      ensureLinesFit();
+      renderPreview();
     }
 
     function applyFontToRange(idx, start, end, font) {
