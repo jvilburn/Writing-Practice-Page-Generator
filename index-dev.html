@@ -596,8 +596,9 @@
       group.className = 'line-group';
       group.style.height = writingHeight + 'px';
       group.style.marginBottom = gap + 'px';
-      // Default: not editable. The editable branch of addTextToLine
-      // re-enables editing only on the .editable-line div inside.
+      // Default: contenteditable=false. addTextToLine flips it back to inherit
+      // when this group will hold an editable-line so cross-line selection
+      // works (a single contenteditable scope spanning all editable lines).
       group.setAttribute('contenteditable', 'false');
 
       if (lineStyle === 'ruled') {
@@ -1183,7 +1184,10 @@
 
         const div = document.createElement('div');
         div.className = 'editable-line';
-        div.contentEditable = 'plaintext-only';
+        // Don't set contentEditable here — the parent #preview is the single
+        // contenteditable scope. The line-group is flipped back to inherit
+        // (right below) so this div inherits true and editing works, while
+        // selection can cross between editable lines.
         div.spellcheck = false;
         // Stash the render-time state we need for partial rebuilds. rebuildLine
         // reads these back so it stays in sync with the original render even
@@ -1228,6 +1232,9 @@
 
         group.innerHTML = '';
         group.style.height = L + 'px';
+        // Flip to inherit so the editable-line inside is part of the single
+        // #preview contenteditable scope (cross-line selection works).
+        group.removeAttribute('contenteditable');
         group.appendChild(div);
 
         // Measure the actual baseline position inside the div using a
