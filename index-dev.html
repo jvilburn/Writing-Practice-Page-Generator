@@ -1529,20 +1529,16 @@
       sel.addRange(range);
     }
 
-    function wireEditing() {
-      const lines = $$('.editable-line');
-      lines.forEach(line => {
-        line.addEventListener('beforeinput', onEditableBeforeInput);
-        // 'input' still fires for inputTypes we didn't intercept (IME
-        // composition, etc.). Best-effort: keep the DOM as source of truth.
-        line.addEventListener('input', () => {
-          syncEditorLinesFromDOM();
-          wrapCurrentLineIfTooLong(line);
-          rerenderSiblingsForLine(line);
-        });
-        line.addEventListener('keydown', onEditableKeydown);
-        line.addEventListener('paste', onEditablePaste);
-      });
+    // Editing listeners are attached ONCE at module load (see below) to
+    // #preview, since #preview is the contenteditable scope. wireEditing()
+    // is now a no-op kept as a stub callable from renderPreview.
+    function wireEditing() { /* listeners are global; nothing per-render */ }
+
+    // Helper to find the active editable line from the current selection.
+    function activeEditableLine() {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return null;
+      return findEditableLine(sel.getRangeAt(0).startContainer);
     }
 
     // Caret moves / selection changes → sync activeFont to the character
@@ -1635,6 +1631,24 @@
       }
     }, true);
 
+    // Attach editing listeners once to the contenteditable scope (#preview).
+    // Has to run after #preview is in the DOM and after the editing handlers
+    // are declared. Done from initialization below.
+    function attachEditingListeners() {
+      const preview = $('#preview');
+      if (!preview) return;
+      preview.addEventListener('beforeinput', onEditableBeforeInput);
+      preview.addEventListener('input', () => {
+        const el = activeEditableLine();
+        if (!el) return;
+        syncEditorLinesFromDOM();
+        wrapCurrentLineIfTooLong(el);
+        rerenderSiblingsForLine(el);
+      });
+      preview.addEventListener('keydown', onEditableKeydown);
+      preview.addEventListener('paste', onEditablePaste);
+    }
+
     function syncEditorLinesFromDOM() {
       // Walk each editable line's <span data-font="..."> children and build
       // a Segment[] per line. Stray text nodes (from e.g. IME composition or
@@ -1673,7 +1687,10 @@
     }
 
     function onEditableBeforeInput(e) {
-      const el = e.currentTarget;
+      // With #preview as the single contenteditable, the event fires there.
+      // Find the editable-line via the current selection.
+      const el = activeEditableLine();
+      if (!el) return;
       const sel = window.getSelection();
       if (!sel.rangeCount) return;
       const range = sel.getRangeAt(0);
@@ -1748,7 +1765,8 @@
     }
 
     function onEditableKeydown(e) {
-      const el = e.currentTarget;
+      const el = activeEditableLine();
+      if (!el) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         const myGroup = el.closest('.line-group');
@@ -1790,7 +1808,8 @@
       e.preventDefault();
       const text = (e.clipboardData || window.clipboardData).getData('text');
       if (!text) return;
-      const el = e.currentTarget;
+      const el = activeEditableLine();
+      if (!el) return;
       const myGroup = el.closest('.line-group');
       const idx = parseInt(myGroup.dataset.lineIdx, 10);
       const sel = window.getSelection();
@@ -2149,6 +2168,7 @@
 
     // Initialize after all fonts (including cursive) are loaded
     wireControls();
+    attachEditingListeners();
     updateVisibility();
     updateOrientation();
 
