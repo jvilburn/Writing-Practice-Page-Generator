@@ -197,6 +197,47 @@
       right: 0;
       border-top: 1.5px solid #999;
     }
+    .editable-line {
+      outline: none;
+    }
+    /* Font-at-caret segmented control */
+    .segmented {
+      display: inline-flex;
+      border: 1px solid #999;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .seg {
+      padding: 4px 14px;
+      background: #fff;
+      border: 0;
+      border-right: 1px solid #ddd;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1.2;
+    }
+    .seg:last-child {
+      border-right: 0;
+    }
+    .seg.active {
+      background: #4a90d9;
+      color: #fff;
+    }
+    .seg.mixed {
+      background: #e8eef4;
+      color: #4a90d9;
+      font-style: italic;
+    }
+    /* Repetition lines: visible text but not interactive. Only the text layer
+       is non-interactive; the line-group/ruled background stays visible. */
+    .line-group.repetition svg,
+    .line-group.repetition .editable-line {
+      pointer-events: none;
+    }
+    /* Hide the caret when not editing */
+    @media print {
+      .editable-line { outline: none !important; box-shadow: none !important; }
+    }
     /* Preview Container */
     #preview-container {
       flex: 1;
@@ -268,9 +309,15 @@
       <h2>Worksheet Settings</h2>
 
       <div class="control-group">
-        <h3>Letter Style</h3>
-        <label><input type="radio" name="letterStyle" value="print" checked> Print (block)</label>
-        <label><input type="radio" name="letterStyle" value="cursive"> Cursive</label>
+        <h3>Font at caret</h3>
+        <div class="segmented" id="fontSeg" role="group" aria-label="Font at caret">
+          <button type="button" class="seg active" data-font="print"
+                  aria-pressed="true"
+                  style="font-family: 'Schoolroom', sans-serif;">Print</button>
+          <button type="button" class="seg" data-font="cursive"
+                  aria-pressed="false"
+                  style="font-family: 'FRBCursive', cursive; font-feature-settings: 'calt' 1;">Cursive</button>
+        </div>
       </div>
 
       <div class="control-group">
@@ -287,19 +334,6 @@
 
       <div class="control-group" id="strokeGuideGroup">
         <label><input type="checkbox" id="strokeGuide"> Show stroke guidance</label>
-      </div>
-
-      <div class="control-group">
-        <h3>Content</h3>
-        <label><input type="radio" name="content" value="alphabet" checked> Full Alphabet</label>
-        <label><input type="radio" name="content" value="custom"> Custom</label>
-        <div id="alphabetOptions">
-          <label><input type="checkbox" id="uppercase" checked> Uppercase</label>
-          <label><input type="checkbox" id="lowercase" checked> Lowercase</label>
-        </div>
-        <div id="customInput" class="hidden">
-          <textarea id="customText" placeholder="Type words or sentences here..."></textarea>
-        </div>
       </div>
 
       <div class="control-group">
@@ -327,8 +361,8 @@
       <button id="printBtn">Print / Save PDF</button>
     </aside>
     <main id="preview-container">
-      <div id="preview" class="landscape">
-        <p id="loadingMsg">Loading fonts...</p>
+      <div id="preview" class="landscape" contenteditable="plaintext-only" spellcheck="false">
+        <p id="loadingMsg" contenteditable="false">Loading fonts...</p>
       </div>
     </main>
   </div>
@@ -343,70 +377,13 @@
 
     function updateVisibility() {
       const mode = getVal('mode');
-      const content = getVal('content');
-
       // Trace reps vs blank lines
       $('#traceRepGroup').classList.toggle('hidden', mode !== 'trace');
       $('#blankLinesGroup').classList.toggle('hidden', mode !== 'copy');
-
-      // Alphabet options vs custom textarea
-      $('#alphabetOptions').classList.toggle('hidden', content !== 'alphabet');
-      $('#customInput').classList.toggle('hidden', content !== 'custom');
-
-      // Stroke guidance only available for print mode
-      const letterStyle = getVal('letterStyle');
     }
 
-    // Measure actual font metrics using canvas pixel scanning
-    function measureFontMetrics(fontFamily, fontSize) {
-      const canvas = document.createElement('canvas');
-      const size = fontSize * 3;
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.font = `${fontSize}px ${fontFamily}`;
-      ctx.textBaseline = 'alphabetic';
-      const baseline = Math.round(size * 0.6);
-
-      function getTopBottom(char) {
-        ctx.clearRect(0, 0, size, size);
-        ctx.fillText(char, 0, baseline);
-        const data = ctx.getImageData(0, 0, size, size).data;
-        let top = size, bottom = 0;
-        for (let y = 0; y < size; y++) {
-          for (let x = 0; x < size; x++) {
-            if (data[(y * size + x) * 4 + 3] > 0) {
-              if (y < top) top = y;
-              if (y > bottom) bottom = y;
-            }
-          }
-        }
-        return { top, bottom };
-      }
-
-      const cap = getTopBottom('H');
-      const asc = getTopBottom('b');
-      const xh = getTopBottom('x');
-      const desc = getTopBottom('g');
-
-      return {
-        capHeight: (baseline - cap.top) / fontSize,
-        ascender: (baseline - asc.top) / fontSize,
-        xHeight: (baseline - xh.top) / fontSize,
-        descender: (desc.bottom - baseline) / fontSize,
-      };
-    }
-
-    let _cachedMetrics = null;
-    let _cachedMetricsKey = '';
-    function getFontMetrics(fontFamily, fontSize) {
-      const key = fontFamily + '|' + fontSize;
-      if (_cachedMetricsKey !== key) {
-        _cachedMetrics = measureFontMetrics(fontFamily, fontSize);
-        _cachedMetricsKey = key;
-      }
-      return _cachedMetrics;
-    }
+    // Font metrics now come from the declared FONT_METRICS_FOR table —
+    // pixel-scanning measurement is no longer used.
 
     function updateOrientation() {
       const orientation = getVal('orientation');
@@ -423,18 +400,147 @@
       $('#fontSizeValue').textContent = $('#fontSize').value + 'px';
     }
 
-    function getContent() {
-      const contentType = getVal('content');
-      if (contentType === 'alphabet') {
-        const parts = [];
-        if ($('#uppercase').checked) parts.push('A B C D E F G H I J K L M N O P Q R S T U V W X Y Z');
-        if ($('#lowercase').checked) parts.push('a b c d e f g h i j k l m n o p q r s t u v w x y z');
-        return parts.length ? parts : ['A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'];
+    // Source-of-truth content. Initially the default alphabet; replaced by
+    // the contents of editable lines in the preview as the user types.
+    let editorLines = [
+      [{ font: 'print', text: 'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z' }],
+      [{ font: 'print', text: 'a b c d e f g h i j k l m n o p q r s t u v w x y z' }],
+    ];
+
+    // Currently-active font for new characters typed or inserted. Updated
+    // by the toolbar (click Print/Cursive) and by selectionchange (caret
+    // moves). Default: print.
+    let activeFont = 'print';
+
+    function updateFontToolbar() {
+      const buttons = $$('#fontSeg .seg');
+      buttons.forEach(b => {
+        const active = b.dataset.font === activeFont;
+        b.classList.toggle('active', active);
+        b.classList.remove('mixed');
+        b.setAttribute('aria-pressed', active ? 'true' : 'false');
+      });
+    }
+
+    function setActiveFont(font) {
+      activeFont = font;
+      updateFontToolbar();
+    }
+
+    // A line is a Segment[]: an ordered list of runs, each with its own font.
+    // Segments within a line never cross line boundaries. Adjacent same-font
+    // segments are always coalesced by mutators — callers can assume this.
+    function segmentsToString(segs) {
+      return segs.map(s => s.text).join('');
+    }
+
+    function stringToSegments(str, font = 'print') {
+      return str.length === 0 ? [] : [{ font, text: str }];
+    }
+
+    const VALID_FONTS = new Set(['print', 'cursive']);
+    function coalesceSegments(segs) {
+      const out = [];
+      for (const s of segs) {
+        if (!VALID_FONTS.has(s.font)) {
+          throw new Error(`Invalid segment font: ${JSON.stringify(s.font)}`);
+        }
+        if (s.text.length === 0) continue;
+        const last = out[out.length - 1];
+        if (last && last.font === s.font) {
+          last.text += s.text;
+        } else {
+          out.push({ font: s.font, text: s.text });
+        }
       }
-      const text = $('#customText').value.trim();
-      if (!text) return [];
-      // Preserve extra spaces between words (used for wider spacing)
-      return text.split('\n').filter(line => line.trim());
+      return out;
+    }
+
+    // Total character length of a line (sum of segment text lengths).
+    function lineLength(segs) {
+      let n = 0;
+      for (const s of segs) n += s.text.length;
+      return n;
+    }
+
+    // Return the segments covering [start, end) of this line (no mutation).
+    // Output is not coalesced — callers should coalesce if concatenating.
+    function sliceSegments(segs, start, end) {
+      const out = [];
+      let pos = 0;
+      for (const seg of segs) {
+        const segEnd = pos + seg.text.length;
+        if (segEnd > start && pos < end) {
+          const from = Math.max(0, start - pos);
+          const to = Math.min(seg.text.length, end - pos);
+          out.push({ font: seg.font, text: seg.text.slice(from, to) });
+        }
+        pos = segEnd;
+        if (pos >= end) break;
+      }
+      return out;
+    }
+
+    // Replace characters in editorLines[idx] from [start, end) with newSegments.
+    // Updates the DOM for just that line via rebuildLine — no full renderPreview,
+    // so the caret on other lines is preserved.
+    function applyEdit(idx, start, end, newSegments) {
+      const line = editorLines[idx];
+      const head = sliceSegments(line, 0, start);
+      const tail = sliceSegments(line, end, lineLength(line));
+      editorLines[idx] = coalesceSegments([...head, ...newSegments, ...tail]);
+      rebuildLine(idx);
+    }
+
+    // Re-render only the span children of the editable line at index idx.
+    // Keeps the div element itself (so focus and the ruled background stay).
+    //
+    // ASSUMES: the line's geometry (writingHeight / fontSize / line-height /
+    // background-image) is unchanged since the last full renderPreview. If
+    // any of those change, the caller must call renderPreview() instead.
+    // Forward refs: FONT_METRICS_FOR, fontSizeFor, indexOfGroupForLineIdx
+    // are declared later in the same <script>; function declarations hoist
+    // and the `const` table is accessed only after the script has fully run.
+    function rebuildLine(idx) {
+      const groups = $$('.line-group');
+      const g = groups[indexOfGroupForLineIdx(idx)];
+      if (!g) return;
+      const div = g.querySelector('.editable-line');
+      if (!div) return;
+      div.innerHTML = '';
+      // Read render-time state from the div's dataset (stashed in addTextToLine)
+      // so rebuildLine doesn't drift from live controls between full renders.
+      const writingHeight = parseInt(div.dataset.writingHeight, 10);
+      const mode = div.dataset.renderMode;
+      const guidance = div.dataset.guidance === '1';
+      const color = div.dataset.renderColor;
+      const segs = (editorLines[idx] && editorLines[idx].length > 0)
+        ? editorLines[idx]
+        : [{ font: 'print', text: '' }];
+      for (const seg of segs) {
+        const span = document.createElement('span');
+        span.dataset.font = seg.font;
+        span.textContent = seg.text;
+        const fm = FONT_METRICS_FOR[seg.font];
+        const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+        span.style.cssText = `
+          font-family: ${fam};
+          font-size: ${fontSizeFor(seg.font, writingHeight)}px;
+          font-feature-settings: ${seg.font === 'cursive' ? '"calt" 1' : '"liga" 0'};
+        `;
+        if (guidance && mode === 'trace') {
+          span.style.fontPalette = fm.tracePalette;
+        }
+        div.appendChild(span);
+      }
+    }
+
+
+    function getContent() {
+      // editorLines is the source of truth (Segment[][]). For now, callers
+      // that expect strings get flattened strings. Task 3 teaches the
+      // renderer to consume Segment[] directly.
+      return editorLines.map(segmentsToString);
     }
 
     function createLineGroup(lineStyle, writingHeight, gap, midRatio) {
@@ -442,6 +548,10 @@
       group.className = 'line-group';
       group.style.height = writingHeight + 'px';
       group.style.marginBottom = gap + 'px';
+      // Default: contenteditable=false. addTextToLine flips it back to inherit
+      // when this group will hold an editable-line so cross-line selection
+      // works (a single contenteditable scope spanning all editable lines).
+      group.setAttribute('contenteditable', 'false');
 
       if (lineStyle === 'ruled') {
         const top = document.createElement('div');
@@ -966,7 +1076,25 @@
       return guidance ? 'FRBCursiveArrow' : 'FRBCursive';
     }
 
-    function addTextToLine(group, text, fontSize, writingHeight, color, letterStyle, mode, guidance) {
+    // Metrics by logical font name; used for per-span sizing in addTextToLine.
+    const FONT_METRICS_FOR = {
+      print:   { upm: 1000, capHeight: 688, ascent: 1000, descent: 260,
+                 fontFamily: "'Schoolroom'", guidanceFamily: "'SchoolroomGuidance'",
+                 tracePalette: '--SchoolroomGuidanceTrace' },
+      cursive: { upm: 1000, capHeight: 572, ascent: 650,  descent: 350,
+                 fontFamily: "'FRBCursive'", guidanceFamily: "'FRBCursiveArrow'",
+                 tracePalette: '--FRBCursiveArrowTrace' },
+    };
+
+    // Compute font-size in px so that cap-height equals writingHeight for a given font.
+    function fontSizeFor(font, writingHeight) {
+      const m = FONT_METRICS_FOR[font];
+      return writingHeight * m.upm / m.capHeight;
+    }
+
+    // `content` is Segment[] when editable=true, otherwise a plain string.
+    function addTextToLine(group, content, fontSize, writingHeight, color, letterStyle, mode, guidance, editable, lineStyle) {
+      const text = editable ? null : content;  // non-editable uses string
       let fontFamily, features;
       if (letterStyle === 'cursive') {
         fontFamily = `'${getCursiveFont(mode, guidance)}'`;
@@ -975,25 +1103,133 @@
         fontFamily = guidance ? "'SchoolroomGuidance'" : "'Schoolroom'";
         features = '';
       }
-      // Cap-height-based sizing. capHeight is the actual glyph-outline yMax
-      // of the reference glyph 'H' (not OS/2.sCapHeight, which lies in the
-      // FRB font — declares 700 but H only reaches 572). Measured directly
-      // from each font file; update if the fonts are modified.
-      const FONT_METRICS = {
-        'Schoolroom':         { upm: 1000, capHeight: 688 },
-        'SchoolroomGuidance': { upm: 1000, capHeight: 688 },
-        'FRBCursive':         { upm: 1000, capHeight: 572 },
-        'FRBCursiveArrow':    { upm: 1000, capHeight: 572 },
-      };
-      const famKey = fontFamily.replace(/['"\s,]/g, '').split(/sans-serif|cursive/)[0];
-      const metrics = FONT_METRICS[famKey];
-      if (!metrics) throw new Error(`No metrics declared for font family: ${fontFamily}`);
+      // Use the unified FONT_METRICS_FOR table (keyed by logical font name)
+      // as the single source of cap-height / ascent / descent data. For
+      // non-editable rendering we pick metrics from letterStyle.
+      const metrics = FONT_METRICS_FOR[letterStyle === 'cursive' ? 'cursive' : 'print'];
       // writingHeight is the desired cap height in px. Solve for font-size:
       //   capHeightPx = fontSize * capHeight / upm
       //   fontSize = writingHeight * upm / capHeight
       const fontSizeAll = writingHeight * metrics.upm / metrics.capHeight;
 
-      // Single SVG with one <text> element, tspans for per-character font size
+      // Editable path: use HTML contenteditable div, with baseline position
+      // CALIBRATED via DOM measurement (reliable across browsers/fonts).
+      const yOffset = letterStyle === 'cursive' ? (1 + writingHeight * 0.02) : 1;
+      const targetBaseline = writingHeight - yOffset;
+
+      if (editable) {
+        // Editable line: one <span data-font="..."> per segment, each styled
+        // with its own font-family and font-size (so cap-height matches
+        // writingHeight for both fonts). Line-height is the max of both
+        // fonts' natural box so nothing clips. Ruled lines drawn via
+        // repeating-linear-gradient background on the div; baseline is
+        // measured from a probe so the background aligns precisely.
+        //
+        // When editable, `content` is a Segment[] (see signature comment).
+        const segments = Array.isArray(content) ? content : stringToSegments(content, 'print');
+
+        const F_print = fontSizeFor('print', writingHeight);
+        const F_cursive = fontSizeFor('cursive', writingHeight);
+        const Lprint = F_print * (FONT_METRICS_FOR.print.ascent + FONT_METRICS_FOR.print.descent) / FONT_METRICS_FOR.print.upm;
+        const Lcursive = F_cursive * (FONT_METRICS_FOR.cursive.ascent + FONT_METRICS_FOR.cursive.descent) / FONT_METRICS_FOR.cursive.upm;
+        const L = Math.max(Lprint, Lcursive);
+
+        const div = document.createElement('div');
+        div.className = 'editable-line';
+        // Don't set contentEditable here — the parent #preview is the single
+        // contenteditable scope. The line-group is flipped back to inherit
+        // (right below) so this div inherits true and editing works, while
+        // selection can cross between editable lines.
+        div.spellcheck = false;
+        // Stash the render-time state we need for partial rebuilds. rebuildLine
+        // reads these back so it stays in sync with the original render even
+        // if live controls change between full renderPreviews.
+        div.dataset.writingHeight = String(writingHeight);
+        div.dataset.renderMode = mode;
+        div.dataset.guidance = guidance ? '1' : '0';
+        div.dataset.renderColor = color;
+        div.style.cssText = `
+          position: relative;
+          margin: 0;
+          padding: 0;
+          line-height: ${L}px;
+          color: ${color};
+          white-space: pre;
+          overflow: hidden;
+          outline: none;
+          cursor: text;
+          min-height: ${L}px;
+        `;
+
+        // Render segments. Empty lines get a single zero-length print span so
+        // the caret has something to land in.
+        const segsToRender = (segments && segments.length > 0)
+          ? segments
+          : [{ font: 'print', text: '' }];
+        for (const seg of segsToRender) {
+          const span = document.createElement('span');
+          span.dataset.font = seg.font;
+          span.textContent = seg.text;
+          const fm = FONT_METRICS_FOR[seg.font];
+          const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+          span.style.cssText = `
+            font-family: ${fam};
+            font-size: ${fontSizeFor(seg.font, writingHeight)}px;
+            font-feature-settings: ${seg.font === 'cursive' ? '"calt" 1' : '"liga" 0'};
+          `;
+          if (guidance && mode === 'trace') {
+            span.style.fontPalette = fm.tracePalette;
+          }
+          div.appendChild(span);
+        }
+
+        group.innerHTML = '';
+        group.style.height = L + 'px';
+        // Flip to inherit so the editable-line inside is part of the single
+        // #preview contenteditable scope (cross-line selection works).
+        group.removeAttribute('contenteditable');
+        group.appendChild(div);
+
+        // Measure the actual baseline position inside the div using a
+        // zero-size inline-block with vertical-align: baseline. Its bottom
+        // edge coincides exactly with the first line's baseline.
+        const probe = document.createElement('span');
+        probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;';
+        div.insertBefore(probe, div.firstChild);
+        const probeRect = probe.getBoundingClientRect();
+        const divRect = div.getBoundingClientRect();
+        const baselineY = probeRect.bottom - divRect.top;
+        div.removeChild(probe);
+
+        const capTopY = baselineY - writingHeight;
+        const midY = capTopY + writingHeight * 0.5;
+        const showRuled = lineStyle === 'ruled';
+
+        const bgParts = [`transparent 0`];
+        if (showRuled) {
+          bgParts.push(
+            `transparent ${capTopY - 0.5}px`,
+            `#999 ${capTopY - 0.5}px`,
+            `#999 ${capTopY + 0.5}px`,
+            `transparent ${capTopY + 0.5}px`,
+            `transparent ${midY - 0.5}px`,
+            `#ccc ${midY - 0.5}px`,
+            `#ccc ${midY + 0.5}px`,
+            `transparent ${midY + 0.5}px`,
+          );
+        }
+        bgParts.push(
+          `transparent ${baselineY - 0.75}px`,
+          `#999 ${baselineY - 0.75}px`,
+          `#999 ${baselineY + 0.75}px`,
+          `transparent ${baselineY + 0.75}px`,
+          `transparent ${L}px`,
+        );
+        div.style.backgroundImage = `repeating-linear-gradient(to bottom, ${bgParts.join(', ')})`;
+        return;
+      }
+
+      // Single SVG with one <text> element for non-editable display.
       const svgNS = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(svgNS, 'svg');
       svg.setAttribute('width', '100%');
@@ -1008,16 +1244,13 @@
 
       const textEl = document.createElementNS(svgNS, 'text');
       textEl.setAttribute('x', '0');
-      const yOffset = letterStyle === 'cursive' ? (1 + writingHeight * 0.02) : 1;
-      textEl.setAttribute('y', writingHeight - yOffset);
+      textEl.setAttribute('y', targetBaseline);
       textEl.setAttribute('dominant-baseline', 'alphabetic');
       textEl.setAttribute('font-family', fontFamily);
       textEl.setAttribute('fill', color);
       textEl.setAttribute('font-size', fontSizeAll + 'px');
       if (letterStyle === 'cursive') {
         textEl.style.fontFeatureSettings = '"calt" 1';
-        // For the color guidance font, use palette override in trace mode
-        // to gray the letters while keeping arrows red
         if (guidance && mode === 'trace') {
           textEl.style.fontPalette = '--FRBCursiveArrowTrace';
         }
@@ -1040,15 +1273,22 @@
 
       const lineStyle = getVal('lineStyle');
       const mode = getVal('mode');
-      const letterStyle = getVal('letterStyle');
+      // letterStyle is a vestige — per-segment fonts replace this. Kept as
+      // 'print' so any non-editable branches that still use it (SVG repetitions)
+      // letterStyle is a vestige; per-segment fonts replace it. Single-font
+      // SVG repetition rendering still uses 'print' (mixed-font repetitions
+      // aren't supported in the SVG renderer; that's a follow-up).
+      const letterStyle = 'print';
       // Slider controls writingHeight (top line to baseline distance).
       // CSS font-size is scaled up so cap height fills that space exactly.
       const writingHeight = parseInt($('#fontSize').value);
-      const printFont = "'Schoolroom', sans-serif";
-      const metrics = getFontMetrics(printFont, 100); // measure at reference size
-      const fontSize = writingHeight / metrics.capHeight;
+      // Use declared font metrics (no pixel-scanning) for sizing math.
+      const printM = FONT_METRICS_FOR.print;
+      const capHeightRatio = printM.capHeight / printM.upm;     // 0.688
+      const descenderRatio = printM.descent / printM.upm;       // 0.26
+      const fontSize = writingHeight / capHeightRatio;
       // Gap below baseline: descender space + inter-line spacing
-      const gap = fontSize * (metrics.descender + 0.25);
+      const gap = fontSize * (descenderRatio + 0.25);
       // Total height per line slot
       const totalLineHeight = writingHeight + gap;
       const midRatio = 0.5;
@@ -1106,24 +1346,32 @@
         return wrapped;
       }
 
-      const content = wrapLines(getContent());
-      if (content.length === 0 && getVal('content') === 'custom') {
-        const msg = document.createElement('p');
-        msg.textContent = 'Type words or sentences in the controls panel...';
-        msg.style.cssText = 'color: #aaa; font-style: italic; padding-top: 40px; text-align: center;';
-        preview.appendChild(msg);
-        return;
-      }
+      // Ensure every line in editorLines fits within the page width, cascading
+      // overflow into subsequent lines (not creating extra ones).
+      ensureLinesFit();
+      let content = getContent();
+      if (content.length === 0) { editorLines = [[]]; content = ['']; }
 
       let linesUsed = 0;
 
       if (mode === 'trace') {
-        // Trace mode: repeat each content line traceReps times
-        for (const line of content) {
-          for (let r = 0; r < traceReps && linesUsed < maxLines; r++) {
+        // Trace mode: editable source line, then (reps-1) read-only copies
+        for (let ci = 0; ci < content.length; ci++) {
+          const lineStr = content[ci];
+          const segs = editorLines[ci] || [];
+          // Editable source line (first of the group)
+          if (linesUsed >= maxLines) break;
+          const sourceGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+          sourceGroup.dataset.lineIdx = String(ci);
+          preview.appendChild(sourceGroup);
+          addTextToLine(sourceGroup, segs, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, true, lineStyle);
+          linesUsed++;
+          // Repetitions (read-only)
+          for (let r = 1; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+            group.classList.add('repetition');
             preview.appendChild(group);
-            addTextToLine(group, line, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance);
+            addTextToLine(group, lineStr, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, false, lineStyle);
             linesUsed++;
           }
         }
@@ -1133,25 +1381,705 @@
           linesUsed++;
         }
       } else {
-        // Copy mode: model line, then N blank lines
-        for (const line of content) {
+        // Copy mode: editable model line, then N blank practice lines
+        for (let ci = 0; ci < content.length; ci++) {
+          const segs = editorLines[ci] || [];
           if (linesUsed >= maxLines) break;
-          // Model line
           const modelGroup = createLineGroup(lineStyle, writingHeight, gap, midRatio);
+          modelGroup.dataset.lineIdx = String(ci);
           preview.appendChild(modelGroup);
-          addTextToLine(modelGroup, line, fontSize, writingHeight, '#000', letterStyle, mode, guidance);
+          addTextToLine(modelGroup, segs, fontSize, writingHeight, '#000', letterStyle, mode, guidance, true, lineStyle);
           linesUsed++;
-          // Blank practice lines
           for (let b = 0; b < blankLines && linesUsed < maxLines; b++) {
             preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
             linesUsed++;
           }
         }
-        // Fill remaining with blank lines
         while (linesUsed < maxLines) {
           preview.appendChild(createLineGroup(lineStyle, writingHeight, gap, midRatio));
           linesUsed++;
         }
+      }
+
+      wireEditing();
+    }
+
+    // Caret helpers (text offset within a single-line contenteditable)
+    // Font of the character to the LEFT of offset in this line. If offset === 0,
+    // use the font of the character to the right. If the line is empty, use activeFont.
+    function fontAtCaret(line, offset) {
+      if (!line || line.length === 0) return activeFont;
+      if (offset > 0) {
+        // Find segment containing offset-1
+        let pos = 0;
+        for (const seg of line) {
+          if (offset - 1 < pos + seg.text.length) return seg.font;
+          pos += seg.text.length;
+        }
+        return line[line.length - 1].font;
+      }
+      // offset === 0: use rightward neighbor
+      return line[0].font;
+    }
+
+    // Character offset of an arbitrary (container, offset) pair inside `el`.
+    function getCaretOffsetAtRange(el, container, offset) {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      r.setEnd(container, offset);
+      return r.toString().length;
+    }
+
+    function getCaretOffset(el) {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return 0;
+      const range = sel.getRangeAt(0);
+      if (!el.contains(range.startContainer)) return 0;
+      const pre = range.cloneRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(range.startContainer, range.startOffset);
+      return pre.toString().length;
+    }
+    function setCaretOffset(el, offset) {
+      el.focus();
+      const sel = window.getSelection();
+      const range = document.createRange();
+      // Walk spans to find which one contains the target offset. For offsets
+      // that land exactly on a span boundary, prefer the START of the NEXT
+      // span — so typing inherits the next span's font (right-neighbor).
+      // Exception: the last span takes offsets up to its end inclusive.
+      const children = Array.from(el.childNodes).filter(c =>
+        c.nodeType === Node.ELEMENT_NODE || c.nodeType === Node.TEXT_NODE
+      );
+      let remaining = offset;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const isLast = i === children.length - 1;
+        const len = child.textContent.length;
+        const fits = isLast ? remaining <= len : remaining < len;
+        if (fits) {
+          const textNode = child.nodeType === Node.ELEMENT_NODE ? child.firstChild : child;
+          if (textNode) {
+            range.setStart(textNode, Math.max(0, Math.min(remaining, len)));
+          } else {
+            range.setStart(child, 0);
+          }
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
+        }
+        remaining -= len;
+      }
+      // Past the end: place at end of last child (or the el itself if empty)
+      const last = el.lastElementChild || el.lastChild;
+      if (last && last.nodeType === Node.ELEMENT_NODE && last.firstChild) {
+        range.setStart(last.firstChild, last.textContent.length);
+      } else if (last && last.nodeType === Node.TEXT_NODE) {
+        range.setStart(last, last.textContent.length);
+      } else {
+        range.setStart(el, 0);
+      }
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+
+    // Editing listeners are attached ONCE at module load (see below) to
+    // #preview, since #preview is the contenteditable scope. wireEditing()
+    // is now a no-op kept as a stub callable from renderPreview.
+    function wireEditing() { /* listeners are global; nothing per-render */ }
+
+    // Helper to find the active editable line from the current selection.
+    function activeEditableLine() {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return null;
+      return findEditableLine(sel.getRangeAt(0).startContainer);
+    }
+
+    // Caret moves / selection changes → sync activeFont to the character
+    // on the LEFT of the caret (or right, at line start).
+    //
+    // Mixed-selection behavior: when a selection spans multiple fonts, the
+    // toolbar shows a 'mixed' indeterminate state, but `activeFont` is NOT
+    // changed. That means if the user types to overwrite the selection, the
+    // new character uses whatever font they previously chose (or whatever was
+    // active before the selection was made). This matches word-processor
+    // convention: a font pick is a separate "hold" from the selection.
+    //
+    // Attached once at module load; no-op if caret isn't inside an editable line.
+    // Track the last-processed selection so we can ignore spurious
+    // selectionchange events that don't actually move the caret.
+    let lastSelectionState = { idx: null, start: null, end: null, isMixed: false };
+
+    // activeFont auto-updates ONLY when the caret moves due to direct user
+    // navigation (mouse click in an editable line, arrow keys). Typing also
+    // moves the caret programmatically via setCaretOffset, but we don't
+    // want that to override the user's font pick. This flag is set by
+    // mousedown / arrow keydown handlers and cleared after one
+    // selectionchange consumes it.
+    let userMovedCaret = false;
+
+    document.addEventListener('selectionchange', () => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      let node = range.startContainer;
+      while (node && node !== document && !(node.classList && node.classList.contains('editable-line'))) {
+        node = node.parentNode;
+      }
+      if (!node || !node.classList || !node.classList.contains('editable-line')) return;
+      const group = node.closest('.line-group');
+      if (!group) return;
+      const idx = parseInt(group.dataset.lineIdx, 10);
+      if (!Number.isFinite(idx)) return;
+
+      const startOffset = getCaretOffsetAtRange(node, range.startContainer, range.startOffset);
+      let endOffset = startOffset;
+      let isMixed = false;
+      if (!sel.isCollapsed) {
+        endOffset = getCaretOffsetAtRange(node, range.endContainer, range.endOffset);
+        const lo = Math.min(startOffset, endOffset);
+        const hi = Math.max(startOffset, endOffset);
+        const segs = sliceSegments(editorLines[idx] || [], lo, hi);
+        const fonts = new Set(segs.map(s => s.font));
+        isMixed = fonts.size > 1;
+      }
+
+      // Skip if the selection hasn't actually moved or changed shape.
+      if (lastSelectionState.idx === idx &&
+          lastSelectionState.start === startOffset &&
+          lastSelectionState.end === endOffset &&
+          lastSelectionState.isMixed === isMixed) {
+        return;
+      }
+      lastSelectionState = { idx, start: startOffset, end: endOffset, isMixed };
+
+      if (isMixed) {
+        $$('#fontSeg .seg').forEach(b => {
+          b.classList.remove('active');
+          b.classList.add('mixed');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        return;
+      }
+      // Only update activeFont when caret moved due to direct user input
+      // (mouse click, arrow keys). Programmatic moves (typing's
+      // setCaretOffset) leave activeFont alone so the user's font pick
+      // sticks across keystrokes.
+      if (userMovedCaret) {
+        userMovedCaret = false;
+        activeFont = fontAtCaret(editorLines[idx], startOffset);
+      }
+      updateFontToolbar();
+    });
+
+    // Mark caret moves caused by user clicks/arrows as "user-driven".
+    document.addEventListener('mousedown', e => {
+      if (findEditableLine(e.target)) userMovedCaret = true;
+    }, true);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+          e.key === 'ArrowUp'   || e.key === 'ArrowDown' ||
+          e.key === 'Home'      || e.key === 'End' ||
+          e.key === 'PageUp'    || e.key === 'PageDown') {
+        if (findEditableLine(e.target)) userMovedCaret = true;
+      }
+    }, true);
+
+    // Attach editing listeners once to the contenteditable scope (#preview).
+    // Has to run after #preview is in the DOM and after the editing handlers
+    // are declared. Done from initialization below.
+    function attachEditingListeners() {
+      const preview = $('#preview');
+      if (!preview) return;
+      preview.addEventListener('beforeinput', onEditableBeforeInput);
+      preview.addEventListener('input', () => {
+        const el = activeEditableLine();
+        if (!el) return;
+        syncEditorLinesFromDOM();
+        wrapCurrentLineIfTooLong(el);
+        rerenderSiblingsForLine(el);
+      });
+      preview.addEventListener('keydown', onEditableKeydown);
+      preview.addEventListener('paste', onEditablePaste);
+    }
+
+    function syncEditorLinesFromDOM() {
+      // Walk each editable line's <span data-font="..."> children and build
+      // a Segment[] per line. Stray text nodes (from e.g. IME composition or
+      // certain browser paste paths) inherit the font of the previous
+      // sibling span, falling back to the next sibling span, then print.
+      const eds = $$('.editable-line');
+      editorLines = Array.from(eds).map(el => {
+        const kids = Array.from(el.childNodes).filter(c =>
+          (c.nodeType === Node.ELEMENT_NODE && c.dataset && c.dataset.font) ||
+          c.nodeType === Node.TEXT_NODE
+        );
+        function fontForStray(i) {
+          // Look backwards for a span with a font
+          for (let j = i - 1; j >= 0; j--) {
+            const k = kids[j];
+            if (k.nodeType === Node.ELEMENT_NODE && k.dataset && k.dataset.font) return k.dataset.font;
+          }
+          // Then forwards
+          for (let j = i + 1; j < kids.length; j++) {
+            const k = kids[j];
+            if (k.nodeType === Node.ELEMENT_NODE && k.dataset && k.dataset.font) return k.dataset.font;
+          }
+          return 'print';
+        }
+        const segs = [];
+        for (let i = 0; i < kids.length; i++) {
+          const child = kids[i];
+          if (child.nodeType === Node.ELEMENT_NODE) {
+            segs.push({ font: child.dataset.font, text: child.textContent });
+          } else {
+            segs.push({ font: fontForStray(i), text: child.textContent });
+          }
+        }
+        return coalesceSegments(segs);
+      });
+    }
+
+    function onEditableBeforeInput(e) {
+      // With #preview as the single contenteditable, the event fires there.
+      // Find the editable-line via the current selection.
+      const el = activeEditableLine();
+      if (!el) return;
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      const myGroup = el.closest('.line-group');
+      if (!myGroup) return;
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const start = getCaretOffsetAtRange(el, range.startContainer, range.startOffset);
+      const end = getCaretOffsetAtRange(el, range.endContainer, range.endOffset);
+      const [lo, hi] = start <= end ? [start, end] : [end, start];
+
+      if (e.inputType === 'insertText' && e.data != null) {
+        e.preventDefault();
+        const ch = e.data;
+        applyEdit(idx, lo, hi, [{ font: activeFont, text: ch }]);
+        setCaretOffset(el, lo + ch.length);
+        // Width may now exceed paper; cascade any overflow
+        wrapCurrentLineIfTooLong(el);
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      if (e.inputType === 'deleteContentBackward') {
+        e.preventDefault();
+        if (lo === hi && lo === 0) {
+          // Backspace at start of line: merge with previous line (preserving
+          // both lines' full Segment[] content — no flattening).
+          //
+          // Assumes editorLines is authoritative: every mutator (typing,
+          // delete, Enter, paste, font-apply) routes through applyEdit or
+          // explicit editorLines mutation followed by renderPreview. No
+          // syncEditorLinesFromDOM call needed here.
+          if (idx === 0) return;
+          const prev = editorLines[idx - 1];
+          const prevLen = lineLength(prev);
+          editorLines[idx - 1] = coalesceSegments([...prev, ...editorLines[idx]]);
+          editorLines.splice(idx, 1);
+          renderPreview();
+          const g = $$('.line-group')[indexOfGroupForLineIdx(idx - 1)];
+          const l = g && g.querySelector('.editable-line');
+          if (l) setCaretOffset(l, prevLen);
+          return;
+        }
+        if (lo === hi) {
+          applyEdit(idx, lo - 1, lo, []);
+          setCaretOffset(el, lo - 1);
+        } else {
+          applyEdit(idx, lo, hi, []);
+          setCaretOffset(el, lo);
+        }
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      if (e.inputType === 'deleteContentForward') {
+        e.preventDefault();
+        if (lo === hi) {
+          const ll = lineLength(editorLines[idx]);
+          if (lo < ll) applyEdit(idx, lo, lo + 1, []);
+        } else {
+          applyEdit(idx, lo, hi, []);
+        }
+        setCaretOffset(el, lo);
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      // Other input types (composition, paste, etc.) fall through to the
+      // default browser handling; the input event will resync state.
+      //
+      // TODO: IME composition (insertCompositionText/insertFromComposition)
+      // is currently attributed to whatever span the browser drops text into,
+      // which may be a stray text node that `syncEditorLinesFromDOM` labels
+      // as print. For languages that rely on IME we'd need to manage
+      // compositionstart/end and wrap composed text in an activeFont span.
+    }
+
+    function onEditableKeydown(e) {
+      const el = activeEditableLine();
+      if (!el) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const myGroup = el.closest('.line-group');
+        const idx = parseInt(myGroup.dataset.lineIdx, 10);
+        const offset = getCaretOffset(el);
+        // Split the Segment[] at the caret offset (preserving font runs).
+        const line = editorLines[idx];
+        const head = coalesceSegments(sliceSegments(line, 0, offset));
+        const tail = coalesceSegments(sliceSegments(line, offset, lineLength(line)));
+        editorLines[idx] = head;
+        editorLines.splice(idx + 1, 0, tail);
+        renderPreview();
+        const newGroup = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
+        if (newGroup) {
+          const newLine = newGroup.querySelector('.editable-line');
+          if (newLine) setCaretOffset(newLine, 0);
+        }
+        return;
+      }
+      // Backspace is handled in onEditableBeforeInput (deleteContentBackward).
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const myGroup = el.closest('.line-group');
+        const idx = parseInt(myGroup.dataset.lineIdx, 10);
+        const targetIdx = e.key === 'ArrowUp' ? idx - 1 : idx + 1;
+        if (targetIdx < 0 || targetIdx >= editorLines.length) return;
+        const targetGroup = $$('.line-group')[indexOfGroupForLineIdx(targetIdx)];
+        if (targetGroup) {
+          const targetLine = targetGroup.querySelector('.editable-line');
+          if (targetLine) {
+            const offset = Math.min(getCaretOffset(el), targetLine.textContent.length);
+            setCaretOffset(targetLine, offset);
+          }
+        }
+      }
+    }
+
+    function onEditablePaste(e) {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      if (!text) return;
+      const el = activeEditableLine();
+      if (!el) return;
+      const myGroup = el.closest('.line-group');
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const sel = window.getSelection();
+      const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+      const startOff = getCaretOffset(el);
+      const endOff = range ? getCaretOffsetAtRange(el, range.endContainer, range.endOffset) : startOff;
+      const [lo, hi] = startOff <= endOff ? [startOff, endOff] : [endOff, startOff];
+      const pieces = text.split(/\r?\n/);
+      if (pieces.length === 1) {
+        // Single-line paste: replace selection with one activeFont segment.
+        applyEdit(idx, lo, hi, [{ font: activeFont, text: pieces[0] }]);
+        setCaretOffset(el, lo + pieces[0].length);
+        wrapCurrentLineIfTooLong(el);
+        rerenderSiblingsForLine(el);
+        return;
+      }
+      // Multi-line paste: current line keeps head + first piece; middle pieces
+      // become new lines; last piece prepends to what follows the selection.
+      // Edge cases handled:
+      //   - Trailing `\n` (pieces end in ""): last line becomes the tail
+      //     prefixed by "" (coalesced to just the tail, or [] if tail empty).
+      //     [] is a valid empty editable line (rendered with one empty span).
+      //   - Pure "\n" paste (pieces = ["", ""]): inserts an empty line below,
+      //     leaving the current line unchanged; matches Enter-at-caret.
+      const line = editorLines[idx];
+      const head = sliceSegments(line, 0, lo);
+      const tail = sliceSegments(line, hi, lineLength(line));
+      editorLines[idx] = coalesceSegments([...head, { font: activeFont, text: pieces[0] }]);
+      const middleLines = pieces.slice(1, pieces.length - 1).map(p =>
+        coalesceSegments([{ font: activeFont, text: p }])
+      );
+      const lastLine = coalesceSegments([{ font: activeFont, text: pieces[pieces.length - 1] }, ...tail]);
+      editorLines.splice(idx + 1, 0, ...middleLines, lastLine);
+      // Any pasted line that exceeds the paper width gets cascaded into
+      // subsequent lines (flows into or past the pasted "last line" tail).
+      ensureLinesFit();
+      renderPreview();
+      // Attempt to restore caret at the end of the pasted content. After
+      // ensureLinesFit the target line may have shifted; clamp to the last
+      // available line if the computed index is out of bounds.
+      const nominalTargetIdx = idx + pieces.length - 1;
+      const targetLineIdx = Math.min(nominalTargetIdx, editorLines.length - 1);
+      const targetCaret = (targetLineIdx === nominalTargetIdx)
+        ? pieces[pieces.length - 1].length
+        : lineLength(editorLines[targetLineIdx]);
+      const g = $$('.line-group')[indexOfGroupForLineIdx(targetLineIdx)];
+      const l = g && g.querySelector('.editable-line');
+      if (l) setCaretOffset(l, targetCaret);
+    }
+
+    // Find which .line-group is the editable source group for a given editorLines index
+    // Find the .editable-line ancestor of a DOM node.
+    function findEditableLine(node) {
+      while (node && node !== document) {
+        if (node.classList && node.classList.contains('editable-line')) return node;
+        node = node.parentNode;
+      }
+      return null;
+    }
+
+    // Apply `font` to every character in the current selection, coalescing runs.
+    // Spans multiple editable lines correctly (apply to tail of start line,
+    // middle lines in full, head of end line).
+    function applyFontToSelection(font) {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount) return;
+      const range = sel.getRangeAt(0);
+      const startEl = findEditableLine(range.startContainer);
+      const endEl = findEditableLine(range.endContainer);
+      if (!startEl || !endEl) return;
+      const startGroup = startEl.closest('.line-group');
+      const endGroup = endEl.closest('.line-group');
+      if (!startGroup || !endGroup) return;
+      const startIdx = parseInt(startGroup.dataset.lineIdx, 10);
+      const endIdx = parseInt(endGroup.dataset.lineIdx, 10);
+      const startOffset = getCaretOffsetAtRange(startEl, range.startContainer, range.startOffset);
+      const endOffset = getCaretOffsetAtRange(endEl, range.endContainer, range.endOffset);
+
+      if (startIdx === endIdx) {
+        const [lo, hi] = startOffset <= endOffset ? [startOffset, endOffset] : [endOffset, startOffset];
+        applyFontToRange(startIdx, lo, hi, font);
+      } else {
+        // Normalize ordering so startIdx <= endIdx
+        const [a, b, aOff, bOff] = startIdx <= endIdx
+          ? [startIdx, endIdx, startOffset, endOffset]
+          : [endIdx, startIdx, endOffset, startOffset];
+        applyFontToRange(a, aOff, lineLength(editorLines[a]), font);
+        for (let i = a + 1; i < b; i++) {
+          applyFontToRange(i, 0, lineLength(editorLines[i]), font);
+        }
+        applyFontToRange(b, 0, bOff, font);
+      }
+      // Font changes can change a line's rendered width (cursive vs print
+      // metrics differ at the same cap-height). Cascade overflow downward AND
+      // tighten upward (pull content back up when the new font is narrower)
+      // so the worksheet always uses the available page width.
+      ensureLinesFit();
+      tightenLines();
+      renderPreview();
+    }
+
+    function applyFontToRange(idx, start, end, font) {
+      if (start >= end) return;
+      const newSegs = sliceSegments(editorLines[idx], start, end)
+        .map(s => ({ font, text: s.text }));
+      applyEdit(idx, start, end, newSegs);
+    }
+
+    function indexOfGroupForLineIdx(lineIdx) {
+      const groups = $$('.line-group');
+      for (let i = 0; i < groups.length; i++) {
+        if (groups[i].dataset.lineIdx === String(lineIdx)) return i;
+      }
+      return -1;
+    }
+
+    // Measure the rendered width of a line using canvas, matching addTextToLine font.
+    // Measure rendered width. Accepts a Segment[] (preferred) or a plain
+    // string (legacy: treated as a single print segment).
+    function measureLinePixelWidth(input) {
+      const guidance = $('#strokeGuide').checked;
+      const writingHeight = parseInt($('#fontSize').value);
+      const segs = (typeof input === 'string')
+        ? [{ font: 'print', text: input }]
+        : input;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      let total = 0;
+      for (const seg of segs) {
+        if (!seg || !seg.text) continue;
+        const fm = FONT_METRICS_FOR[seg.font];
+        const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+        const fs = fontSizeFor(seg.font, writingHeight);
+        ctx.font = `${fs}px ${fam}`;
+        total += ctx.measureText(seg.text).width;
+      }
+      return total;
+    }
+
+    function availableWidthPx() {
+      const paperWidthIn = getVal('orientation') === 'landscape' ? 11 : 8.5;
+      return (paperWidthIn - 1) * 96;
+    }
+
+    // Split one line at the last fitting word boundary, cascading the overflow
+    // into editorLines[idx+1] (merging, not creating a new entry). Repeats
+    // for idx+1 until every downstream line fits.
+    // Cascade overflow from line idx into idx+1 (and beyond), preserving
+    // font runs when splitting. Each line is treated as a Segment[]; the
+    // split point is found by walking the line as a single string and then
+    // mapped back to segment-aware slices via sliceSegments.
+    function cascadeOverflow(idx) {
+      const avail = availableWidthPx();
+      while (idx < editorLines.length) {
+        const line = editorLines[idx];
+        if (measureLinePixelWidth(line) <= avail) return;
+        const text = segmentsToString(line);
+        const tokens = text.match(/\S+|\s+/g) || [];
+        // Find the largest prefix (in chars) that fits within `avail`.
+        let prefixChars = 0;
+        let lastFitChars = 0;
+        for (let i = 0; i < tokens.length; i++) {
+          const tok = tokens[i];
+          const test = prefixChars + tok.length;
+          const candidate = sliceSegments(line, 0, test);
+          if (measureLinePixelWidth(candidate) > avail) {
+            // Don't break before any non-space content has been kept
+            if (lastFitChars === 0) {
+              lastFitChars = prefixChars;  // may be zero
+            }
+            break;
+          }
+          prefixChars = test;
+          if (tok.trim().length > 0) lastFitChars = prefixChars;
+        }
+        if (lastFitChars === 0) return;  // unbreakable run
+        // Split: head segments [0, lastFitChars), tail segments [lastFitChars, end).
+        // Trim leading whitespace off the tail (visual word-wrap behavior).
+        const head = coalesceSegments(sliceSegments(line, 0, lastFitChars));
+        let tail = sliceSegments(line, lastFitChars, lineLength(line));
+        while (tail.length > 0 && /^\s*$/.test(tail[0].text)) {
+          tail.shift();
+        }
+        if (tail.length > 0) {
+          tail[0] = { font: tail[0].font, text: tail[0].text.replace(/^\s+/, '') };
+        }
+        tail = coalesceSegments(tail);
+        editorLines[idx] = head;
+        if (idx + 1 < editorLines.length) {
+          // Concatenate tail + next line, inserting a space between if both
+          // sides have non-space content butting up against each other.
+          const next = editorLines[idx + 1];
+          const tailStr = segmentsToString(tail);
+          const nextStr = segmentsToString(next);
+          const needSpace = tailStr.length > 0 && nextStr.length > 0 &&
+                            !tailStr.endsWith(' ') && !nextStr.startsWith(' ');
+          const joiner = needSpace
+            ? [{ font: (tail[tail.length - 1] || { font: 'print' }).font, text: ' ' }]
+            : [];
+          editorLines[idx + 1] = coalesceSegments([...tail, ...joiner, ...next]);
+        } else {
+          editorLines.push(tail);
+        }
+        idx++;
+      }
+    }
+
+    // Make sure every line fits; used on initial load and whenever needed.
+    function ensureLinesFit() {
+      for (let i = 0; i < editorLines.length; i++) cascadeOverflow(i);
+    }
+
+    // Pull content up from idx+1 into idx whenever the current line has
+    // headroom. Intended for content-contracting operations (font shrink,
+    // selection delete, etc.) — NOT called on plain typing/Enter, so user-
+    // induced line breaks are preserved.
+    function tightenLines() {
+      const avail = availableWidthPx();
+      let idx = 0;
+      while (idx < editorLines.length - 1) {
+        const line = editorLines[idx];
+        const next = editorLines[idx + 1];
+        // Skip across blank-line boundaries (preserve "paragraph breaks").
+        if (lineLength(line) === 0 || lineLength(next) === 0) { idx++; continue; }
+        // Find the largest prefix of `next` that fits when appended to line.
+        const nextStr = segmentsToString(next);
+        const tokens = nextStr.match(/\S+|\s+/g) || [];
+        const lineStr = segmentsToString(line);
+        const needSep = !lineStr.endsWith(' ') && !nextStr.startsWith(' ');
+        const sepSeg = needSep
+          ? [{ font: line[line.length - 1].font, text: ' ' }]
+          : [];
+        let charsTaken = 0;
+        let lastFitChars = 0;
+        for (const tok of tokens) {
+          const trial = charsTaken + tok.length;
+          const candidate = [
+            ...line,
+            ...sepSeg,
+            ...sliceSegments(next, 0, trial),
+          ];
+          if (measureLinePixelWidth(candidate) > avail) break;
+          charsTaken = trial;
+          if (tok.trim().length > 0) lastFitChars = charsTaken;
+        }
+        if (lastFitChars === 0) { idx++; continue; }
+        // Move [0, lastFitChars) from `next` into `line`.
+        const pulled = sliceSegments(next, 0, lastFitChars);
+        let remaining = sliceSegments(next, lastFitChars, lineLength(next));
+        // Trim leading whitespace off the remaining tail.
+        while (remaining.length > 0 && /^\s*$/.test(remaining[0].text)) {
+          remaining.shift();
+        }
+        if (remaining.length > 0) {
+          remaining[0] = { font: remaining[0].font, text: remaining[0].text.replace(/^\s+/, '') };
+          remaining = coalesceSegments(remaining);
+        }
+        editorLines[idx] = coalesceSegments([...line, ...sepSeg, ...pulled]);
+        if (remaining.length === 0) {
+          editorLines.splice(idx + 1, 1);
+          // Don't increment idx — re-evaluate this line vs the new next.
+        } else {
+          editorLines[idx + 1] = remaining;
+          // Also stay on this idx in case more can be pulled.
+        }
+      }
+    }
+
+    function wrapCurrentLineIfTooLong(el) {
+      const avail = availableWidthPx();
+      if (measureLinePixelWidth(el.textContent) <= avail) return;
+      const myGroup = el.closest('.line-group');
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const caretOffset = getCaretOffset(el);
+      // editorLines already synced from DOM at start of input handler
+      const firstLen = (function() {
+        // We need to know where the first line ends after cascade, to
+        // decide where the caret belongs.
+        const str = segmentsToString(editorLines[idx] || []);
+        const tokens = str.match(/\S+|\s+/g) || [];
+        let current = '';
+        for (let i = 0; i < tokens.length; i++) {
+          const test = current + tokens[i];
+          if (measureLinePixelWidth(test) > avail && current.trim().length > 0) break;
+          current = test;
+        }
+        return current.length;
+      })();
+      cascadeOverflow(idx);
+      renderPreview();
+      if (caretOffset <= firstLen) {
+        const g = $$('.line-group')[indexOfGroupForLineIdx(idx)];
+        const l = g && g.querySelector('.editable-line');
+        if (l) setCaretOffset(l, caretOffset);
+      } else {
+        const g = $$('.line-group')[indexOfGroupForLineIdx(idx + 1)];
+        const l = g && g.querySelector('.editable-line');
+        if (l) setCaretOffset(l, Math.min(caretOffset - firstLen, segmentsToString(editorLines[idx + 1] || []).length));
+      }
+    }
+
+    // Update only the sibling repetition lines (trace mode) — leave the
+    // actively edited div untouched so the caret stays where it is.
+    function rerenderSiblingsForLine(el) {
+      if (getVal('mode') !== 'trace') return;  // copy mode: no siblings to update
+      const myGroup = el.closest('.line-group');
+      if (!myGroup) return;
+      const newText = el.textContent;
+      let next = myGroup.nextElementSibling;
+      // Walk forward through repetition siblings (which don't have lineIdx)
+      while (next && next.classList.contains('repetition')) {
+        const textEl = next.querySelector('text');
+        if (textEl) textEl.textContent = newText;
+        next = next.nextElementSibling;
       }
     }
 
@@ -1159,9 +2087,7 @@
     function wireControls() {
       const renderInputs = [
         ...$$('input[name="mode"]'),
-        ...$$('input[name="content"]'),
         ...$$('input[name="lineStyle"]'),
-        ...$$('input[name="letterStyle"]'),
         ...$$('input[name="orientation"]'),
       ];
       renderInputs.forEach(el => el.addEventListener('change', () => {
@@ -1177,15 +2103,28 @@
 
       $('#traceReps').addEventListener('change', renderPreview);
       $('#blankLines').addEventListener('change', renderPreview);
-      $('#uppercase').addEventListener('change', renderPreview);
-      $('#lowercase').addEventListener('change', renderPreview);
       $('#strokeGuide').addEventListener('change', renderPreview);
-      $('#customText').addEventListener('input', renderPreview);
       $('#printBtn').addEventListener('click', () => window.print());
+
+      // Font-at-caret segmented control. Prevent the button from stealing
+      // focus on mousedown so the editable line keeps the caret and any
+      // selection — that's the whole point of "font at caret".
+      $$('#fontSeg .seg').forEach(btn => {
+        btn.addEventListener('mousedown', e => e.preventDefault());
+        btn.addEventListener('click', () => {
+          const font = btn.dataset.font;
+          const sel = window.getSelection();
+          if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+            applyFontToSelection(font);
+          }
+          setActiveFont(font);
+        });
+      });
     }
 
     // Initialize after all fonts (including cursive) are loaded
     wireControls();
+    attachEditingListeners();
     updateVisibility();
     updateOrientation();
 
@@ -1206,9 +2145,10 @@
       })
     )).then(() => {
       document.fonts.ready.then(() => {
-        _cachedMetrics = null;
-        _cachedMetricsKey = '';
         renderPreview();
+        // Focus first editable line so typing starts working immediately
+        const first = document.querySelector('.editable-line');
+        if (first) first.focus();
       });
     }).catch(err => {
       alert(err.message + '\n\nCheck browser devtools Network tab for the failing .woff2 file.');

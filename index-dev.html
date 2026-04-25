@@ -382,56 +382,8 @@
       $('#blankLinesGroup').classList.toggle('hidden', mode !== 'copy');
     }
 
-    // Measure actual font metrics using canvas pixel scanning
-    function measureFontMetrics(fontFamily, fontSize) {
-      const canvas = document.createElement('canvas');
-      const size = fontSize * 3;
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.font = `${fontSize}px ${fontFamily}`;
-      ctx.textBaseline = 'alphabetic';
-      const baseline = Math.round(size * 0.6);
-
-      function getTopBottom(char) {
-        ctx.clearRect(0, 0, size, size);
-        ctx.fillText(char, 0, baseline);
-        const data = ctx.getImageData(0, 0, size, size).data;
-        let top = size, bottom = 0;
-        for (let y = 0; y < size; y++) {
-          for (let x = 0; x < size; x++) {
-            if (data[(y * size + x) * 4 + 3] > 0) {
-              if (y < top) top = y;
-              if (y > bottom) bottom = y;
-            }
-          }
-        }
-        return { top, bottom };
-      }
-
-      const cap = getTopBottom('H');
-      const asc = getTopBottom('b');
-      const xh = getTopBottom('x');
-      const desc = getTopBottom('g');
-
-      return {
-        capHeight: (baseline - cap.top) / fontSize,
-        ascender: (baseline - asc.top) / fontSize,
-        xHeight: (baseline - xh.top) / fontSize,
-        descender: (desc.bottom - baseline) / fontSize,
-      };
-    }
-
-    let _cachedMetrics = null;
-    let _cachedMetricsKey = '';
-    function getFontMetrics(fontFamily, fontSize) {
-      const key = fontFamily + '|' + fontSize;
-      if (_cachedMetricsKey !== key) {
-        _cachedMetrics = measureFontMetrics(fontFamily, fontSize);
-        _cachedMetricsKey = key;
-      }
-      return _cachedMetrics;
-    }
+    // Font metrics now come from the declared FONT_METRICS_FOR table —
+    // pixel-scanning measurement is no longer used.
 
     function updateOrientation() {
       const orientation = getVal('orientation');
@@ -1323,16 +1275,20 @@
       const mode = getVal('mode');
       // letterStyle is a vestige — per-segment fonts replace this. Kept as
       // 'print' so any non-editable branches that still use it (SVG repetitions)
-      // default to print. Task 9 will make them segment-aware.
+      // letterStyle is a vestige; per-segment fonts replace it. Single-font
+      // SVG repetition rendering still uses 'print' (mixed-font repetitions
+      // aren't supported in the SVG renderer; that's a follow-up).
       const letterStyle = 'print';
       // Slider controls writingHeight (top line to baseline distance).
       // CSS font-size is scaled up so cap height fills that space exactly.
       const writingHeight = parseInt($('#fontSize').value);
-      const printFont = "'Schoolroom', sans-serif";
-      const metrics = getFontMetrics(printFont, 100); // measure at reference size
-      const fontSize = writingHeight / metrics.capHeight;
+      // Use declared font metrics (no pixel-scanning) for sizing math.
+      const printM = FONT_METRICS_FOR.print;
+      const capHeightRatio = printM.capHeight / printM.upm;     // 0.688
+      const descenderRatio = printM.descent / printM.upm;       // 0.26
+      const fontSize = writingHeight / capHeightRatio;
       // Gap below baseline: descender space + inter-line spacing
-      const gap = fontSize * (metrics.descender + 0.25);
+      const gap = fontSize * (descenderRatio + 0.25);
       // Total height per line slot
       const totalLineHeight = writingHeight + gap;
       const midRatio = 0.5;
@@ -2189,8 +2145,6 @@
       })
     )).then(() => {
       document.fonts.ready.then(() => {
-        _cachedMetrics = null;
-        _cachedMetricsKey = '';
         renderPreview();
         // Focus first editable line so typing starts working immediately
         const first = document.querySelector('.editable-line');
