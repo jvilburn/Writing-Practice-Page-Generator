@@ -1842,9 +1842,11 @@
         applyFontToRange(b, 0, bOff, font);
       }
       // Font changes can change a line's rendered width (cursive vs print
-      // metrics differ at the same cap-height). Cascade overflow + full
-      // re-render so the worksheet stays aligned to the ruled lines.
+      // metrics differ at the same cap-height). Cascade overflow downward AND
+      // tighten upward (pull content back up when the new font is narrower)
+      // so the worksheet always uses the available page width.
       ensureLinesFit();
+      tightenLines();
       renderPreview();
     }
 
@@ -1957,6 +1959,62 @@
     // Make sure every line fits; used on initial load and whenever needed.
     function ensureLinesFit() {
       for (let i = 0; i < editorLines.length; i++) cascadeOverflow(i);
+    }
+
+    // Pull content up from idx+1 into idx whenever the current line has
+    // headroom. Intended for content-contracting operations (font shrink,
+    // selection delete, etc.) — NOT called on plain typing/Enter, so user-
+    // induced line breaks are preserved.
+    function tightenLines() {
+      const avail = availableWidthPx();
+      let idx = 0;
+      while (idx < editorLines.length - 1) {
+        const line = editorLines[idx];
+        const next = editorLines[idx + 1];
+        // Skip across blank-line boundaries (preserve "paragraph breaks").
+        if (lineLength(line) === 0 || lineLength(next) === 0) { idx++; continue; }
+        // Find the largest prefix of `next` that fits when appended to line.
+        const nextStr = segmentsToString(next);
+        const tokens = nextStr.match(/\S+|\s+/g) || [];
+        const lineStr = segmentsToString(line);
+        const needSep = !lineStr.endsWith(' ') && !nextStr.startsWith(' ');
+        const sepSeg = needSep
+          ? [{ font: line[line.length - 1].font, text: ' ' }]
+          : [];
+        let charsTaken = 0;
+        let lastFitChars = 0;
+        for (const tok of tokens) {
+          const trial = charsTaken + tok.length;
+          const candidate = [
+            ...line,
+            ...sepSeg,
+            ...sliceSegments(next, 0, trial),
+          ];
+          if (measureLinePixelWidth(candidate) > avail) break;
+          charsTaken = trial;
+          if (tok.trim().length > 0) lastFitChars = charsTaken;
+        }
+        if (lastFitChars === 0) { idx++; continue; }
+        // Move [0, lastFitChars) from `next` into `line`.
+        const pulled = sliceSegments(next, 0, lastFitChars);
+        let remaining = sliceSegments(next, lastFitChars, lineLength(next));
+        // Trim leading whitespace off the remaining tail.
+        while (remaining.length > 0 && /^\s*$/.test(remaining[0].text)) {
+          remaining.shift();
+        }
+        if (remaining.length > 0) {
+          remaining[0] = { font: remaining[0].font, text: remaining[0].text.replace(/^\s+/, '') };
+          remaining = coalesceSegments(remaining);
+        }
+        editorLines[idx] = coalesceSegments([...line, ...sepSeg, ...pulled]);
+        if (remaining.length === 0) {
+          editorLines.splice(idx + 1, 1);
+          // Don't increment idx — re-evaluate this line vs the new next.
+        } else {
+          editorLines[idx + 1] = remaining;
+          // Also stay on this idx in case more can be pulled.
+        }
+      }
     }
 
     function wrapCurrentLineIfTooLong(el) {
