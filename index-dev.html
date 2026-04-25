@@ -361,8 +361,8 @@
       <button id="printBtn">Print / Save PDF</button>
     </aside>
     <main id="preview-container">
-      <div id="preview" class="landscape">
-        <p id="loadingMsg">Loading fonts...</p>
+      <div id="preview" class="landscape" contenteditable="plaintext-only" spellcheck="false">
+        <p id="loadingMsg" contenteditable="false">Loading fonts...</p>
       </div>
     </main>
   </div>
@@ -596,6 +596,9 @@
       group.className = 'line-group';
       group.style.height = writingHeight + 'px';
       group.style.marginBottom = gap + 'px';
+      // Default: not editable. The editable branch of addTextToLine
+      // re-enables editing only on the .editable-line div inside.
+      group.setAttribute('contenteditable', 'false');
 
       if (lineStyle === 'ruled') {
         const top = document.createElement('div');
