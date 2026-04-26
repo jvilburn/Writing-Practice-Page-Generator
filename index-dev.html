@@ -132,6 +132,69 @@
     .hidden {
       display: none;
     }
+    /* Practice-content cascading menu */
+    .menu-trigger {
+      width: 100%;
+      padding: 8px 10px;
+      text-align: left;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .menu-trigger > span:first-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .menu-trigger:hover { border-color: #94a3b8; }
+    .menu-trigger::after { content: '▾'; color: #64748b; }
+    .menu-popover {
+      position: fixed;
+      z-index: 1000;
+      display: none;
+      align-items: flex-start;
+      background: transparent;
+    }
+    .menu-popover.open { display: flex; }
+    .menu-panel {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+      min-width: 200px;
+      max-height: 70vh;
+      overflow-y: auto;
+      padding: 4px 0;
+      margin-right: 2px;
+    }
+    .menu-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+      gap: 8px;
+    }
+    .menu-item:hover { background: #f1f5f9; }
+    .menu-item.active { background: #dbeafe; }
+    .menu-item .chev { color: #94a3b8; }
+    .menu-item.selected { background: #e0e7ff; font-weight: 600; }
+    .menu-sep {
+      height: 1px;
+      background: #e5e7eb;
+      margin: 4px 0;
+    }
     #printBtn {
       width: 100%;
       padding: 10px;
@@ -309,14 +372,29 @@
       <h2>Worksheet Settings</h2>
 
       <div class="control-group">
-        <h3>Font at caret</h3>
-        <div class="segmented" id="fontSeg" role="group" aria-label="Font at caret">
+        <h3>Handwriting style</h3>
+        <div class="segmented" id="fontSeg" role="group" aria-label="Handwriting style">
           <button type="button" class="seg active" data-font="print"
                   aria-pressed="true"
                   style="font-family: 'Schoolroom', sans-serif;">Print</button>
           <button type="button" class="seg" data-font="cursive"
                   aria-pressed="false"
                   style="font-family: 'FRBCursive', cursive; font-feature-settings: 'calt' 1;">Cursive</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h3>Practice content</h3>
+        <button type="button" id="practiceContentBtn" class="menu-trigger" aria-haspopup="true" aria-expanded="false">
+          <span id="practiceContentLabel">— choose —</span>
+        </button>
+        <div id="practiceLearningModeGroup" class="hidden" style="margin-top: 6px;">
+          <label><input type="radio" name="practiceLearningMode" value="initial" checked> Initial learning</label>
+          <label><input type="radio" name="practiceLearningMode" value="review"> Practice &amp; review</label>
+        </div>
+        <div id="drillRangeGroup" class="hidden" style="margin-top: 6px;">
+          <label>From <select id="drillFrom"></select></label>
+          <label>To <select id="drillTo"></select></label>
         </div>
       </div>
 
@@ -366,6 +444,7 @@
       </div>
     </main>
   </div>
+  <div id="practiceMenu" class="menu-popover" role="menu" aria-hidden="true"></div>
   <script>
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -1130,9 +1209,11 @@
 
         const F_print = fontSizeFor('print', writingHeight);
         const F_cursive = fontSizeFor('cursive', writingHeight);
-        const Lprint = F_print * (FONT_METRICS_FOR.print.ascent + FONT_METRICS_FOR.print.descent) / FONT_METRICS_FOR.print.upm;
-        const Lcursive = F_cursive * (FONT_METRICS_FOR.cursive.ascent + FONT_METRICS_FOR.cursive.descent) / FONT_METRICS_FOR.cursive.upm;
-        const L = Math.max(Lprint, Lcursive);
+        // Line stride matches the filler line-groups: just the writing area
+        // (cap → baseline). Ascenders above and descenders below extend
+        // into the gap area via overflow:visible, so consecutive lines —
+        // populated or empty — share the same row spacing.
+        const L = writingHeight;
 
         const div = document.createElement('div');
         div.className = 'editable-line';
@@ -1155,10 +1236,10 @@
           line-height: ${L}px;
           color: ${color};
           white-space: pre;
-          overflow: hidden;
+          overflow: visible;
           outline: none;
           cursor: text;
-          min-height: ${L}px;
+          height: ${L}px;
         `;
 
         // Render segments. Empty lines get a single zero-length print span so
@@ -1183,53 +1264,29 @@
           div.appendChild(span);
         }
 
-        group.innerHTML = '';
+        // Keep the existing rule divs (top/mid/base) added by createLineGroup
+        // so editable lines and filler lines share the same ruled visuals
+        // (dashed mid, solid top/base, exact same Y positions). Just append
+        // the editable-div on top — its background is transparent so the
+        // rules show through.
         group.style.height = L + 'px';
+        group.style.position = 'relative';
         // Flip to inherit so the editable-line inside is part of the single
         // #preview contenteditable scope (cross-line selection works).
         group.removeAttribute('contenteditable');
+        // Position the editable-div so it overlays the rule divs exactly.
+        div.style.position = 'absolute';
+        div.style.top = '0';
+        div.style.left = '0';
+        div.style.right = '0';
+        div.style.background = 'transparent';
         group.appendChild(div);
-
-        // Measure the actual baseline position inside the div using a
-        // zero-size inline-block with vertical-align: baseline. Its bottom
-        // edge coincides exactly with the first line's baseline.
-        const probe = document.createElement('span');
-        probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline;';
-        div.insertBefore(probe, div.firstChild);
-        const probeRect = probe.getBoundingClientRect();
-        const divRect = div.getBoundingClientRect();
-        const baselineY = probeRect.bottom - divRect.top;
-        div.removeChild(probe);
-
-        const capTopY = baselineY - writingHeight;
-        const midY = capTopY + writingHeight * 0.5;
-        const showRuled = lineStyle === 'ruled';
-
-        const bgParts = [`transparent 0`];
-        if (showRuled) {
-          bgParts.push(
-            `transparent ${capTopY - 0.5}px`,
-            `#999 ${capTopY - 0.5}px`,
-            `#999 ${capTopY + 0.5}px`,
-            `transparent ${capTopY + 0.5}px`,
-            `transparent ${midY - 0.5}px`,
-            `#ccc ${midY - 0.5}px`,
-            `#ccc ${midY + 0.5}px`,
-            `transparent ${midY + 0.5}px`,
-          );
-        }
-        bgParts.push(
-          `transparent ${baselineY - 0.75}px`,
-          `#999 ${baselineY - 0.75}px`,
-          `#999 ${baselineY + 0.75}px`,
-          `transparent ${baselineY + 0.75}px`,
-          `transparent ${L}px`,
-        );
-        div.style.backgroundImage = `repeating-linear-gradient(to bottom, ${bgParts.join(', ')})`;
         return;
       }
 
-      // Single SVG with one <text> element for non-editable display.
+      // Non-editable display: SVG with one <tspan> per font segment so
+      // mixed-font content (e.g. trace repetitions of pair packs or any
+      // hand-edited mixed line) renders each character in its actual font.
       const svgNS = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(svgNS, 'svg');
       svg.setAttribute('width', '100%');
@@ -1242,26 +1299,40 @@
         pointer-events: none;
       `;
 
+      // Normalize input to Segment[]: a plain string falls back to the
+      // letterStyle font; a Segment[] is used as-is.
+      const segments = Array.isArray(content)
+        ? content
+        : [{ font: letterStyle === 'cursive' ? 'cursive' : 'print', text: content }];
+
       const textEl = document.createElementNS(svgNS, 'text');
       textEl.setAttribute('x', '0');
       textEl.setAttribute('y', targetBaseline);
       textEl.setAttribute('dominant-baseline', 'alphabetic');
-      textEl.setAttribute('font-family', fontFamily);
       textEl.setAttribute('fill', color);
-      textEl.setAttribute('font-size', fontSizeAll + 'px');
-      if (letterStyle === 'cursive') {
-        textEl.style.fontFeatureSettings = '"calt" 1';
-        if (guidance && mode === 'trace') {
-          textEl.style.fontPalette = '--FRBCursiveArrowTrace';
-        }
-      } else {
-        textEl.style.fontFeatureSettings = '"liga" 0';
-        if (guidance && mode === 'trace') {
-          textEl.style.fontPalette = '--SchoolroomGuidanceTrace';
-        }
-      }
       textEl.style.whiteSpace = 'pre';
-      textEl.textContent = text;
+
+      for (const seg of segments) {
+        const fm = FONT_METRICS_FOR[seg.font];
+        const segFam = guidance ? fm.guidanceFamily : fm.fontFamily;
+        const segSize = fontSizeFor(seg.font, writingHeight);
+        const tspan = document.createElementNS(svgNS, 'tspan');
+        tspan.setAttribute('font-family', segFam);
+        tspan.setAttribute('font-size', segSize + 'px');
+        if (seg.font === 'cursive') {
+          tspan.style.fontFeatureSettings = '"calt" 1';
+          if (guidance && mode === 'trace') {
+            tspan.style.fontPalette = fm.tracePalette;
+          }
+        } else {
+          tspan.style.fontFeatureSettings = '"liga" 0';
+          if (guidance && mode === 'trace') {
+            tspan.style.fontPalette = fm.tracePalette;
+          }
+        }
+        tspan.textContent = seg.text;
+        textEl.appendChild(tspan);
+      }
 
       svg.appendChild(textEl);
       group.appendChild(svg);
@@ -1366,12 +1437,13 @@
           preview.appendChild(sourceGroup);
           addTextToLine(sourceGroup, segs, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, true, lineStyle);
           linesUsed++;
-          // Repetitions (read-only)
+          // Repetitions (read-only). Pass the segments so per-character
+          // fonts (mixed-font content) render correctly.
           for (let r = 1; r < traceReps && linesUsed < maxLines; r++) {
             const group = createLineGroup(lineStyle, writingHeight, gap, midRatio);
             group.classList.add('repetition');
             preview.appendChild(group);
-            addTextToLine(group, lineStr, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, false, lineStyle);
+            addTextToLine(group, segs, fontSize, writingHeight, '#c0c0c0', letterStyle, mode, guidance, false, lineStyle);
             linesUsed++;
           }
         }
@@ -1595,6 +1667,7 @@
       if (!preview) return;
       preview.addEventListener('beforeinput', onEditableBeforeInput);
       preview.addEventListener('input', () => {
+        packEdited = true;
         const el = activeEditableLine();
         if (!el) return;
         syncEditorLinesFromDOM();
@@ -1643,6 +1716,9 @@
     }
 
     function onEditableBeforeInput(e) {
+      // Any keystroke counts as an edit, so a later font-size change won't
+      // wipe what the user typed.
+      packEdited = true;
       // With #preview as the single contenteditable, the event fires there.
       // Find the editable-line via the current selection.
       const el = activeEditableLine();
@@ -1829,6 +1905,40 @@
     // Apply `font` to every character in the current selection, coalescing runs.
     // Spans multiple editable lines correctly (apply to tail of start line,
     // middle lines in full, head of end line).
+    // Is the editor currently all one font? Empty lines don't disqualify.
+    function isEditorUniformFont() {
+      let seen = null;
+      for (const line of editorLines) {
+        for (const seg of line) {
+          if (!seg.text) continue;
+          if (seen === null) seen = seg.font;
+          else if (seg.font !== seen) return false;
+        }
+      }
+      return true;
+    }
+
+    // Returns the dominant font of the editor when uniform; falls back to
+    // the current activeFont when the editor is empty.
+    function currentEditorFont() {
+      for (const line of editorLines) {
+        for (const seg of line) {
+          if (seg.text) return seg.font;
+        }
+      }
+      return activeFont;
+    }
+
+    function applyFontToAll(font) {
+      editorLines = editorLines.map(line =>
+        line.map(seg => ({ font, text: seg.text }))
+      );
+      renderPreview();
+      ensureLinesFit();
+      tightenLines();
+      renderPreview();
+    }
+
     function applyFontToSelection(font) {
       const sel = window.getSelection();
       if (!sel || !sel.rangeCount) return;
@@ -1910,11 +2020,38 @@
       return (paperWidthIn - 1) * 96;
     }
 
-    // Split one line at the last fitting word boundary, cascading the overflow
-    // into editorLines[idx+1] (merging, not creating a new entry). Repeats
-    // for idx+1 until every downstream line fits.
-    // Cascade overflow from line idx into idx+1 (and beyond), preserving
-    // font runs when splitting. Each line is treated as a Segment[]; the
+    // How many editable lines actually fit on the page given the current
+    // font size, line style, and mode. Used by the practice-content
+    // generators so their output never overshoots and produces partial
+    // (clipped) lines at the bottom of the page.
+    function editableLinesPerPage() {
+      const preview = $('#preview');
+      if (!preview) return 12;
+      const writingHeight = parseInt($('#fontSize').value);
+      const printM = FONT_METRICS_FOR.print;
+      const capHeightRatio = printM.capHeight / printM.upm;
+      const descenderRatio = printM.descent / printM.upm;
+      const fontSize = writingHeight / capHeightRatio;
+      const gap = fontSize * (descenderRatio + 0.25);
+      const totalLineHeight = writingHeight + gap;
+      const padTop = parseFloat(getComputedStyle(preview).paddingTop) || 0;
+      const availH = preview.clientHeight - padTop * 2;
+      const mode = getVal('mode');
+      // Each editable line is followed by sibling lines (repetitions in
+      // trace mode, blank practice lines in copy mode).
+      let perEditable = 1;
+      if (mode === 'trace') {
+        perEditable = parseInt($('#traceReps').value) || 1;
+      } else if (mode === 'copy') {
+        perEditable = 1 + (parseInt($('#blankLines').value) || 0);
+      }
+      const stride = totalLineHeight * perEditable;
+      return Math.max(1, Math.floor(availH / stride));
+    }
+
+    // Split one line at the last fitting word boundary, inserting the tail
+    // as a new line entry at idx+1. Preserves user-intent line breaks.
+    // Repeats for idx+1 until every downstream line fits. Each line is treated as a Segment[]; the
     // split point is found by walking the line as a single string and then
     // mapped back to segment-aware slices via sliceSegments.
     function cascadeOverflow(idx) {
@@ -1954,9 +2091,10 @@
         }
         tail = coalesceSegments(tail);
         editorLines[idx] = head;
+        // Merge tail into the next line so overflow flows naturally during
+        // typing. Pack generators size every line to fit by construction,
+        // so this code path normally only runs in response to user edits.
         if (idx + 1 < editorLines.length) {
-          // Concatenate tail + next line, inserting a space between if both
-          // sides have non-space content butting up against each other.
           const next = editorLines[idx + 1];
           const tailStr = segmentsToString(tail);
           const nextStr = segmentsToString(next);
@@ -2073,17 +2211,1182 @@
       if (getVal('mode') !== 'trace') return;  // copy mode: no siblings to update
       const myGroup = el.closest('.line-group');
       if (!myGroup) return;
-      const newText = el.textContent;
+      const idx = parseInt(myGroup.dataset.lineIdx, 10);
+      const segs = (Number.isFinite(idx) && editorLines[idx]) || [];
       let next = myGroup.nextElementSibling;
-      // Walk forward through repetition siblings (which don't have lineIdx)
       while (next && next.classList.contains('repetition')) {
         const textEl = next.querySelector('text');
-        if (textEl) textEl.textContent = newText;
+        if (textEl) {
+          // Rebuild tspans so per-character font is preserved.
+          while (textEl.firstChild) textEl.removeChild(textEl.firstChild);
+          const writingHeight = parseInt($('#fontSize').value);
+          const guidance = $('#strokeGuide').checked;
+          const mode = getVal('mode');
+          const svgNS = 'http://www.w3.org/2000/svg';
+          for (const seg of segs) {
+            if (!seg.text) continue;
+            const fm = FONT_METRICS_FOR[seg.font];
+            const fam = guidance ? fm.guidanceFamily : fm.fontFamily;
+            const tspan = document.createElementNS(svgNS, 'tspan');
+            tspan.setAttribute('font-family', fam);
+            tspan.setAttribute('font-size', fontSizeFor(seg.font, writingHeight) + 'px');
+            tspan.style.fontFeatureSettings = seg.font === 'cursive' ? '"calt" 1' : '"liga" 0';
+            if (guidance && mode === 'trace') tspan.style.fontPalette = fm.tracePalette;
+            tspan.textContent = seg.text;
+            textEl.appendChild(tspan);
+          }
+        }
         next = next.nextElementSibling;
       }
     }
 
     // Wire up all controls to re-render
+    // Curated content packs for the Practice Content dropdown. Each entry
+    // is either {lines: [...]} for static content, or {drill: 'upper'|'lower'}
+    // for the range-picker variants which compute lines at selection time.
+    const PRACTICE_PACKS = {
+      upper:    { lines: ['A B C D E F G H I J K L M N O P Q R S T U V W X Y Z'] },
+      lower:    { lines: ['a b c d e f g h i j k l m n o p q r s t u v w x y z'] },
+      both:     { lines: [
+        'A B C D E F G H I J K L M N O P Q R S T U V W X Y Z',
+        'a b c d e f g h i j k l m n o p q r s t u v w x y z',
+      ] },
+      upperDrill: { drill: 'upper' },
+      lowerDrill: { drill: 'lower' },
+      vowels:   { lines: ['A E I O U', 'a e i o u'] },
+      pairUpper: { mixed: true },
+      pairLower: { mixed: true },
+      blank:    { blank: true },
+
+      cvcA: { shuffle: true, words: [
+        'cat', 'bat', 'hat', 'mat', 'sat', 'rat', 'fat', 'pat',
+        'ran', 'man', 'can', 'fan', 'tan', 'van', 'pan',
+        'cap', 'map', 'nap', 'tap', 'lap', 'gap', 'rap', 'sap', 'zap',
+        'bad', 'dad', 'had', 'mad', 'sad', 'pad', 'lad',
+        'bag', 'tag', 'wag', 'rag', 'nag', 'gag',
+        'ham', 'jam', 'ram', 'dam', 'yam',
+        'tax', 'wax', 'fax', 'max',
+      ] },
+      cvcE: { shuffle: true, words: [
+        'bed', 'red', 'led', 'fed', 'wed', 'Ned', 'Ted',
+        'hen', 'pen', 'ten', 'men', 'den', 'Ben',
+        'get', 'jet', 'net', 'pet', 'wet', 'vet',
+        'bet', 'let', 'met', 'set', 'yet',
+        'leg', 'beg', 'peg', 'keg',
+        'vex', 'Rex', 'Tex',
+      ] },
+      cvcI: { shuffle: true, words: [
+        'hit', 'sit', 'pit', 'bit', 'fit', 'kit', 'lit',
+        'pin', 'tin', 'win', 'bin', 'fin', 'sin', 'din',
+        'big', 'dig', 'pig', 'wig', 'fig', 'jig', 'rig',
+        'dip', 'hip', 'lip', 'rip', 'tip', 'zip', 'sip', 'nip',
+        'bid', 'did', 'hid', 'kid', 'lid', 'rid',
+        'dim', 'him', 'rim', 'Tim', 'Jim',
+        'fix', 'mix', 'six',
+      ] },
+      cvcO: { shuffle: true, words: [
+        'hot', 'pot', 'got', 'lot', 'dot', 'not', 'jot', 'tot',
+        'hop', 'mop', 'pop', 'top', 'cop',
+        'dog', 'log', 'fog', 'hog', 'jog', 'bog',
+        'cod', 'nod', 'rod', 'pod',
+        'cob', 'job', 'mob', 'rob', 'sob', 'bob',
+        'box', 'fox',
+      ] },
+      cvcU: { shuffle: true, words: [
+        'bun', 'fun', 'run', 'sun', 'nun', 'pun',
+        'but', 'cut', 'hut', 'nut', 'shut',
+        'bug', 'hug', 'jug', 'mug', 'rug', 'tug', 'pug',
+        'gum', 'hum', 'sum', 'yum',
+        'cup', 'pup',
+        'cub', 'hub', 'rub', 'tub', 'sub',
+        'bud', 'mud',
+        'bus', 'us',
+      ] },
+      vt_a_e: { shuffle: true, words: [
+        'cake', 'make', 'bake', 'lake', 'rake', 'take', 'wake', 'sake',
+        'name', 'game', 'came', 'same', 'fame', 'tame',
+        'gate', 'late', 'date',
+        'save', 'wave', 'cave', 'gave',
+        'tape', 'cape',
+        'face', 'race',
+        'plate', 'skate', 'crate',
+        'place', 'space', 'brace', 'trace',
+        'brave', 'grave', 'shape', 'grape',
+        'escape',
+      ] },
+      vt_ai: { shuffle: true, words: [
+        'rain', 'pain', 'main',
+        'sail', 'mail', 'tail', 'nail', 'jail', 'rail', 'pail',
+        'paid', 'laid', 'maid',
+        'wait',
+        'brain', 'train', 'chain', 'stain', 'plain',
+        'snail', 'braid',
+        'paint', 'faint', 'saint',
+        'afraid',
+      ] },
+      vt_ay: { shuffle: true, words: [
+        'day', 'way', 'may', 'pay', 'say',
+        'play', 'stay',
+        'tray', 'gray', 'clay', 'pray',
+        'spray',
+        'today', 'okay', 'away', 'delay',
+        'crayon', 'player', 'birthday',
+        'holiday',
+      ] },
+      vt_e_e: { shuffle: true, words: [
+        'eve', 'Pete', 'these',
+        'theme', 'scene', 'gene',
+        'complete', 'compete', 'athlete',
+        'concrete', 'delete',
+        'extreme', 'supreme',
+      ] },
+      vt_ee: { shuffle: true, words: [
+        'see', 'bee',
+        'feet', 'meet',
+        'seed', 'need', 'feed', 'weed', 'deed',
+        'keep', 'weep', 'beep', 'deep',
+        'peek', 'week', 'seek',
+        'green', 'seen',
+        'tree', 'free',
+        'sleep', 'sheep', 'sheet',
+        'three', 'street', 'sweet', 'greet',
+        'cheek', 'speed', 'between',
+      ] },
+      vt_ea: { shuffle: true, words: [
+        'eat', 'seat', 'meat',
+        'sea', 'pea', 'tea',
+        'bean', 'team', 'beam',
+        'read', 'bead', 'leaf',
+        'each', 'peach', 'teach', 'reach', 'beach',
+        'east', 'beast', 'feast',
+        'leave', 'please',
+        'speak', 'clean', 'dream', 'cream', 'stream',
+      ] },
+      vt_i_e: { shuffle: true, words: [
+        'bike', 'like', 'hike',
+        'kite', 'bite',
+        'time', 'line', 'nine', 'pine', 'vine', 'dine',
+        'ride', 'side', 'hide', 'wide',
+        'mile', 'pile',
+        'fire', 'wire', 'hire',
+        'five',
+        'white', 'drive', 'shine', 'slime', 'smile', 'while',
+      ] },
+      vt_ie: { shuffle: true, words: [
+        'pie', 'tie', 'lie', 'die',
+      ] },
+      vt_ie_e: { shuffle: true, words: [
+        'piece', 'niece',
+        'chief', 'brief',
+        'field', 'yield',
+        'thief', 'grief', 'priest',
+        'shield',
+        'believe', 'achieve', 'relief',
+      ] },
+      vt_y: { shuffle: true, words: [
+        'my', 'by', 'fly', 'try', 'sky',
+        'why', 'cry', 'dry', 'sly',
+        'spy', 'shy', 'fry',
+        'ply', 'pry', 'sty', 'wry',
+      ] },
+      vt_y_e: { shuffle: true, words: [
+        'happy', 'puppy', 'bunny', 'sunny', 'funny',
+        'baby', 'lady', 'candy', 'daddy', 'mommy',
+        'silly', 'jolly', 'belly',
+        'only', 'very', 'many', 'penny',
+        'study', 'story', 'sorry', 'hurry',
+        'pretty', 'city', 'party',
+      ] },
+      vt_o_e: { shuffle: true, words: [
+        'home', 'bone', 'cone',
+        'rope', 'hope',
+        'note', 'vote',
+        'rode', 'rose', 'nose', 'hose',
+        'woke', 'joke', 'poke',
+        'hole', 'pole', 'mole',
+        'robe', 'globe',
+        'chose', 'those', 'close', 'whole',
+        'stove', 'drove', 'smoke', 'quote',
+      ] },
+      vt_oa: { shuffle: true, words: [
+        'boat', 'coat', 'goat', 'moat',
+        'road', 'toad', 'load',
+        'oat', 'oak',
+        'soap', 'foam', 'roam',
+        'soak',
+        'coast', 'roast', 'toast',
+        'float', 'cloak',
+      ] },
+      vt_ow: { shuffle: true, words: [
+        'low', 'know',
+        'slow', 'snow', 'grow', 'show', 'blow',
+        'flow', 'glow', 'throw',
+        'window', 'pillow', 'yellow', 'follow',
+        'shadow', 'rainbow', 'elbow',
+      ] },
+      vt_u_e: { shuffle: true, words: [
+        'cute', 'mute',
+        'use', 'fuse',
+        'cube', 'tube',
+        'mule', 'rule',
+        'June', 'tune', 'dune',
+        'rude', 'dude', 'jute', 'lute',
+        'fume', 'plume',
+        'flute', 'prune', 'brute', 'crude',
+        'presume', 'costume', 'tribute',
+      ] },
+      vt_ue: { shuffle: true, words: [
+        'sue', 'due', 'hue', 'cue',
+        'blue', 'glue', 'true', 'clue',
+        'value', 'argue', 'rescue',
+        'venue', 'statue', 'virtue',
+        'tissue', 'issue',
+        'pursue', 'continue', 'avenue',
+      ] },
+      vt_oo_long: { shuffle: true, words: [
+        'moon', 'soon', 'noon',
+        'food', 'mood',
+        'room', 'boom', 'zoom',
+        'tool', 'pool', 'cool',
+        'boot', 'hoot', 'roof',
+        'spoon', 'bloom', 'broom',
+        'loose', 'goose', 'roost',
+      ] },
+      vt_oo_short: { shuffle: true, words: [
+        'book', 'look', 'took',
+        'foot', 'hood', 'good', 'wood',
+        'cook', 'hook', 'nook', 'rook',
+        'stood', 'shook',
+        'brook', 'crook',
+      ] },
+      vt_open: { shuffle: true, words: [
+        'me', 'he', 'we', 'she', 'be',
+        'hi', 'I',
+        'go', 'no', 'so',
+        'baby', 'paper', 'tiger',
+        'open', 'even', 'pilot',
+        'music', 'robot', 'zero',
+        'lazy', 'crazy',
+      ] },
+      vt_igh: { shuffle: true, words: [
+        'high', 'sigh',
+        'might', 'night', 'right', 'sight', 'tight',
+        'fight', 'light',
+        'thigh',
+        'bright', 'flight', 'slight',
+        'knight', 'delight',
+      ] },
+      vt_ew: { shuffle: true, words: [
+        'new', 'few',
+        'dew',
+        'drew', 'flew',
+        'blew', 'chew', 'grew',
+        'stew', 'threw',
+        'crew', 'brew', 'screw',
+        'nephew',
+      ] },
+
+      rc_ar: { shuffle: true, words: [
+        'car', 'bar', 'far', 'jar', 'tar',
+        'park', 'dark', 'mark', 'bark',
+        'cart', 'art',
+        'arm', 'harm', 'farm',
+        'barn', 'yarn',
+        'card', 'hard', 'yard',
+        'harp', 'sharp',
+        'star', 'scar',
+        'chart', 'smart', 'start',
+        'shark', 'spark',
+        'charm', 'alarm', 'guard',
+        'garden', 'target', 'garlic',
+      ] },
+      rc_or: { shuffle: true, words: [
+        'for', 'or',
+        'born', 'corn', 'horn', 'torn', 'worn',
+        'fork', 'pork', 'cork',
+        'port', 'sort', 'fort',
+        'form',
+        'short', 'sport', 'storm', 'sworn',
+        'stork',
+        'order', 'border',
+        'morning', 'story', 'glory',
+      ] },
+      rc_er: { shuffle: true, words: [
+        'her',
+        'fern', 'term', 'verb', 'herb',
+        'perch', 'jerk', 'clerk',
+        'after', 'over', 'under',
+        'ever', 'never',
+        'mother', 'father', 'sister', 'brother',
+        'paper', 'water', 'river',
+        'butter', 'summer', 'winter',
+        'silver', 'number', 'ladder', 'finger', 'teacher',
+      ] },
+      rc_ir: { shuffle: true, words: [
+        'sir', 'fir',
+        'bird', 'girl',
+        'stir',
+        'dirt',
+        'firm',
+        'birth',
+        'first', 'third', 'thirst',
+        'shirt', 'skirt',
+        'chirp',
+        'twirl', 'swirl',
+      ] },
+      rc_ur: { shuffle: true, words: [
+        'fur',
+        'burn', 'turn',
+        'curl', 'hurl',
+        'hurt', 'curb',
+        'curse', 'purse', 'nurse',
+        'curve',
+        'burst',
+        'blur', 'slur', 'spur', 'churn',
+        'turtle', 'purple',
+      ] },
+
+      ov_oi: { shuffle: true, words: [
+        'oil', 'boil', 'soil', 'toil', 'foil', 'coil',
+        'coin', 'join',
+        'point', 'joint',
+        'moist', 'hoist',
+        'noise', 'voice',
+        'spoil', 'broil',
+        'choice',
+      ] },
+      ov_oy: { shuffle: true, words: [
+        'boy', 'toy', 'joy', 'soy', 'coy',
+        'ploy',
+        'royal', 'loyal', 'annoy',
+        'enjoy', 'decoy', 'convoy',
+        'employ', 'destroy', 'deploy',
+        'oyster', 'voyage', 'royalty',
+      ] },
+      ov_ou: { shuffle: true, words: [
+        'out', 'pout',
+        'sound', 'round', 'found',
+        'pound', 'hound',
+        'mouse', 'house',
+        'mouth', 'ouch', 'couch',
+        'loud', 'cloud', 'proud',
+        'sour', 'flour', 'hour',
+        'shout', 'count', 'mount',
+        'ground',
+        'about',
+      ] },
+      ov_ow: { shuffle: true, words: [
+        'cow', 'how', 'now', 'bow', 'vow',
+        'down', 'town', 'gown',
+        'brow', 'chow',
+        'plow', 'allow',
+        'brown', 'crown', 'frown', 'clown', 'drown',
+        'flower', 'power', 'tower', 'shower',
+      ] },
+      ov_aw: { shuffle: true, words: [
+        'saw', 'paw', 'raw', 'jaw', 'law',
+        'lawn', 'fawn', 'dawn', 'yawn', 'pawn',
+        'hawk',
+        'claw', 'draw', 'thaw', 'flaw',
+        'straw',
+        'crawl', 'shawl', 'prawn',
+        'squawk', 'awful',
+      ] },
+      ov_au: { shuffle: true, words: [
+        'haul',
+        'pause', 'cause',
+        'sauce', 'fault',
+        'haunt', 'taught', 'caught',
+        'fraud', 'vault',
+        'August', 'autumn', 'author',
+        'naughty', 'laundry',
+        'because', 'faucet', 'launch',
+      ] },
+
+      blends: { shuffle: true, words: [
+        'black', 'blue', 'blow', 'blink',
+        'clap', 'clay', 'club', 'clip', 'clock',
+        'flag', 'flat', 'flip', 'flock',
+        'glad', 'glow', 'glue', 'glass',
+        'plan', 'play', 'plot', 'plus', 'plate',
+        'slip', 'slow', 'slid', 'sleep',
+        'brave', 'brown', 'brick', 'bring',
+        'crab', 'crop', 'cry', 'crown',
+        'dress', 'drink', 'drop', 'dry', 'drum',
+        'frog', 'fresh', 'frost', 'from',
+        'grass', 'green', 'grin', 'grow',
+        'press', 'prize', 'proud', 'print',
+        'train', 'tree', 'truck', 'try',
+        'scan', 'scarf', 'scout',
+        'skin', 'skip', 'sky', 'skate',
+        'smell', 'smile', 'smart',
+        'snap', 'snake', 'snow',
+        'spin', 'spot', 'speak',
+        'stop', 'stand', 'star', 'step',
+        'swim', 'swing', 'sweet',
+        'scratch', 'scream',
+        'sprout', 'spray', 'spring',
+        'strong', 'street', 'string',
+        'splash', 'split', 'splat',
+      ] },
+      digraphs: { shuffle: true, words: [
+        'ship', 'shop', 'shut', 'shed', 'shell',
+        'chin', 'chip', 'chop', 'chat', 'check',
+        'thin', 'think', 'thick', 'thanks',
+        'that', 'this', 'them', 'these',
+        'when', 'whip', 'which', 'what', 'white',
+        'fish', 'dish', 'wash',
+        'much', 'such', 'rich',
+        'phone', 'graph', 'elephant',
+      ] },
+      qu: { shuffle: true, words: [
+        'quit', 'quiz',
+        'quill', 'quilt',
+        'quack',
+        'quick',
+        'queen', 'quiet',
+        'quote',
+        'quart', 'quest',
+        'squid', 'squish', 'square', 'squeeze',
+      ] },
+
+      cp_soft_c: { shuffle: true, words: [
+        'ice', 'face',
+        'cell',
+        'city',
+        'nice', 'rice', 'mice',
+        'race',
+        'place', 'space', 'brace',
+        'price', 'slice',
+        'pencil', 'center',
+        'cycle', 'circle', 'circus',
+        'fancy', 'mercy',
+        'cinch', 'decide', 'accept',
+      ] },
+      cp_soft_g: { shuffle: true, words: [
+        'gym',
+        'age', 'cage', 'page',
+        'stage',
+        'gem',
+        'large',
+        'gentle', 'ginger',
+        'giant', 'germ',
+        'change', 'orange',
+        'giraffe', 'magic', 'engine', 'genius',
+      ] },
+      cp_kn: { shuffle: true, words: [
+        'knot', 'knit', 'knob',
+        'knee', 'know', 'knew',
+        'knock', 'knack',
+        'knife',
+        'kneel', 'knelt', 'knead',
+        'knight',
+        'knuckle', 'knoll', 'knives',
+        'knowledge', 'knapsack',
+      ] },
+      cp_wr: { shuffle: true, words: [
+        'wrap', 'wren',
+        'wrist', 'wring',
+        'wreck', 'wreath',
+        'wrong',
+        'write', 'wrote',
+        'wrench', 'wretch',
+        'wry',
+        'wrinkle', 'wrestle', 'wretched',
+        'wrapper', 'wrought',
+      ] },
+      cp_mb: { shuffle: true, words: [
+        'lamb', 'limb',
+        'comb',
+        'thumb', 'numb', 'dumb',
+        'tomb', 'womb',
+        'bomb',
+        'climb', 'crumb', 'plumb',
+      ] },
+      cp_gn: { shuffle: true, words: [
+        'gnat', 'gnu',
+        'gnaw', 'gnash', 'gnarl',
+        'gnome',
+        'sign',
+        'reign', 'feign', 'deign',
+        'design', 'resign', 'assign',
+        'align', 'benign', 'malign',
+        'foreign',
+      ] },
+
+      fp_ck: { shuffle: true, words: [
+        'back', 'pack', 'rack', 'sack', 'tack', 'lack',
+        'black', 'stack', 'track', 'quack',
+        'pick', 'lick', 'kick',
+        'thick', 'chick', 'trick', 'brick', 'stick',
+        'clock', 'dock', 'lock', 'rock', 'sock',
+        'block', 'flock', 'shock',
+        'buck', 'duck', 'luck',
+        'stuck', 'truck', 'struck',
+        'neck', 'deck',
+        'check', 'peck', 'speck',
+      ] },
+      fp_tch: { shuffle: true, words: [
+        'catch', 'hatch', 'match', 'patch', 'latch', 'batch',
+        'pitch', 'witch', 'ditch', 'hitch',
+        'stitch', 'switch',
+        'fetch',
+        'botch', 'notch',
+        'hutch',
+        'sketch', 'stretch',
+        'clutch', 'crutch', 'scratch',
+      ] },
+      fp_dge: { shuffle: true, words: [
+        'badge',
+        'edge', 'ledge', 'wedge',
+        'ridge', 'bridge', 'fridge',
+        'dodge', 'lodge',
+        'judge', 'fudge', 'nudge', 'budge',
+        'smudge', 'grudge', 'trudge',
+      ] },
+      fp_ng: { shuffle: true, words: [
+        'sing', 'ring', 'king', 'wing',
+        'thing',
+        'bring', 'cling', 'sting',
+        'spring', 'string',
+        'hang', 'sang', 'rang',
+        'clang',
+        'long', 'song',
+        'wrong', 'strong',
+        'lung', 'sung', 'rung',
+        'young',
+      ] },
+      fp_nk: { shuffle: true, words: [
+        'bank', 'tank', 'rank', 'yank', 'Hank', 'sank',
+        'prank', 'crank', 'drank', 'flank', 'frank',
+        'plank', 'shank', 'blank', 'shrank', 'stank', 'thank',
+        'ink', 'mink', 'pink', 'rink', 'sink', 'wink',
+        'blink', 'brink', 'clink', 'drink', 'kink', 'link',
+        'shrink', 'slink', 'think', 'stink',
+        'bonk', 'conk', 'honk',
+        'bunk', 'dunk', 'funk', 'hunk', 'junk', 'punk',
+        'sunk', 'drunk', 'shrunk', 'stunk', 'thunk',
+        'skunk', 'slunk', 'trunk', 'monk',
+        'sank', 'sink', 'sunk',
+        'rank', 'rink',
+        'thank', 'think', 'thunk',
+        'bank', 'bunk',
+      ] },
+
+      end_ing: { shuffle: true, words: [
+        'going', 'coming',
+        'looking', 'eating',
+        'reading', 'writing', 'singing',
+        'walking', 'talking', 'calling',
+        'running', 'jumping', 'playing', 'helping',
+        'sleeping', 'working', 'thinking',
+        'making', 'baking',
+        'trying', 'flying', 'crying', 'buying',
+        'staying', 'spelling', 'drawing',
+      ] },
+      end_ed: { shuffle: true, words: [
+        'walked', 'played', 'helped',
+        'looked', 'called', 'talked', 'filled',
+        'jumped', 'missed', 'liked',
+        'baked', 'named', 'hoped', 'saved', 'voted',
+        'wanted', 'ended', 'landed',
+        'started', 'rested', 'handed', 'planted',
+      ] },
+      end_le: { shuffle: true, words: [
+        'apple', 'little',
+        'table', 'maple', 'staple',
+        'puddle', 'middle', 'riddle',
+        'bubble', 'paddle',
+        'handle', 'candle', 'ankle', 'uncle',
+        'eagle', 'bugle',
+        'simple', 'people',
+        'purple', 'turtle',
+        'bottle', 'settle',
+      ] },
+
+      dolchPK: { shuffle: true, words: [
+        'a', 'and', 'away', 'big', 'blue', 'can', 'come', 'down', 'find', 'for',
+        'funny', 'go', 'help', 'here', 'I', 'in', 'is', 'it', 'jump', 'little',
+        'look', 'make', 'me', 'my', 'not', 'one', 'play', 'red', 'run', 'said',
+        'see', 'the', 'three', 'to', 'two', 'up', 'we', 'where', 'yellow', 'you',
+      ] },
+      dolchK: { shuffle: true, words: [
+        'all', 'am', 'are', 'at', 'ate', 'be', 'black', 'brown', 'but', 'came',
+        'did', 'do', 'eat', 'four', 'get', 'good', 'have', 'he', 'into', 'like',
+        'must', 'new', 'no', 'now', 'on', 'our', 'out', 'please', 'pretty', 'ran',
+        'ride', 'saw', 'say', 'she', 'so', 'soon', 'that', 'there', 'they', 'this',
+        'too', 'under', 'want', 'was', 'well', 'went', 'what', 'white', 'who', 'will',
+        'with', 'yes',
+      ] },
+      dolch1: { shuffle: true, words: [
+        'after', 'again', 'an', 'any', 'as', 'ask', 'by', 'could', 'every', 'fly',
+        'from', 'give', 'going', 'had', 'has', 'her', 'him', 'his', 'how', 'just',
+        'know', 'let', 'live', 'may', 'of', 'old', 'once', 'open', 'over', 'put',
+        'round', 'some', 'stop', 'take', 'thank', 'them', 'then', 'think', 'walk', 'were', 'when',
+      ] },
+      dolch2: { shuffle: true, words: [
+        'always', 'around', 'because', 'been', 'before', 'best', 'both', 'buy', 'call', 'cold',
+        'does', 'don’t', 'fast', 'first', 'five', 'found', 'gave', 'goes', 'green', 'its',
+        'made', 'many', 'off', 'or', 'pull', 'read', 'right', 'sing', 'sit', 'sleep',
+        'tell', 'their', 'these', 'those', 'upon', 'us', 'use', 'very', 'wash', 'which',
+        'why', 'wish', 'work', 'would', 'write', 'your',
+      ] },
+      dolch3: { shuffle: true, words: [
+        'about', 'better', 'bring', 'carry', 'clean', 'cut', 'done', 'draw', 'drink', 'eight',
+        'fall', 'far', 'full', 'got', 'grow', 'hold', 'hot', 'hurt', 'if', 'keep',
+        'kind', 'laugh', 'light', 'long', 'much', 'myself', 'never', 'only', 'own', 'pick',
+        'seven', 'shall', 'show', 'six', 'small', 'start', 'ten', 'today', 'together', 'try', 'warm',
+      ] },
+
+      fry1: { shuffle: true, words: [
+        'the', 'of', 'and', 'a', 'to',
+        'in', 'is', 'you', 'that', 'it',
+        'he', 'was', 'for', 'on', 'are',
+        'as', 'with', 'his', 'they', 'I',
+        'at', 'be', 'this', 'have', 'from',
+      ] },
+      fry2: { shuffle: true, words: [
+        'or', 'one', 'had', 'by', 'word',
+        'but', 'not', 'what', 'all', 'were',
+        'we', 'when', 'your', 'can', 'said',
+        'there', 'use', 'an', 'each', 'which',
+        'she', 'do', 'how', 'their', 'if',
+      ] },
+      fry3: { shuffle: true, words: [
+        'will', 'up', 'other', 'about', 'out',
+        'many', 'then', 'them', 'these', 'so',
+        'some', 'her', 'would', 'make', 'like',
+        'him', 'into', 'time', 'has', 'look',
+        'two', 'more', 'write', 'go', 'see',
+      ] },
+      fry4: { shuffle: true, words: [
+        'number', 'no', 'way', 'could', 'people',
+        'my', 'than', 'first', 'water', 'been',
+        'call', 'who', 'oil', 'its', 'now',
+        'find', 'long', 'down', 'day', 'did',
+        'get', 'come', 'made', 'may', 'part',
+      ] },
+
+      colors:   { shuffle: true, lines: [
+        'red orange yellow green blue',
+        'purple pink black white brown',
+        'gray gold silver tan violet',
+      ] },
+      numWords: { shuffle: true, words: [
+        'one', 'two', 'three', 'four', 'five',
+        'six', 'seven', 'eight', 'nine', 'ten',
+        'eleven', 'twelve', 'thirteen',
+        'twenty', 'thirty', 'fifty', 'hundred',
+      ] },
+      days:     { shuffle: true, lines: ['Sunday Monday Tuesday', 'Wednesday Thursday', 'Friday Saturday'] },
+      months:   { shuffle: true, lines: ['January February March', 'April May June', 'July August September', 'October November December'] },
+
+      digits:   { lines: ['0 1 2 3 4 5 6 7 8 9'] },
+
+      declaratives: { lines: ['I see a cat.', 'The sun is hot.', 'We can go to the park.', 'My dog is big.'] },
+      questions:    { lines: ['What is your name?', 'Where do you live?', 'How old are you?', 'Can you read this?'] },
+      exclamations: { lines: ['I love my dog!', 'That is so cool!', 'Look at the rainbow!', 'We did it!'] },
+      twisters:     { lines: ['She sells seashells by the seashore.', 'Peter Piper picked a peck of pickled peppers.', 'Red lorry, yellow lorry.', 'Fuzzy Wuzzy was a bear.'] },
+
+      punct:    { lines: ['. , ? ! ‘ ’ “ ” : ; -'] },
+    };
+
+    // Cascading-menu structure mirrors the old optgroup layout.
+    const PRACTICE_MENU = [
+      { label: 'Type or paste your own', value: 'blank' },
+      { label: 'Letters', children: [
+        { label: 'Uppercase A–Z', value: 'upper' },
+        { label: 'Lowercase a–z', value: 'lower' },
+        { label: 'Both cases', value: 'both' },
+        { label: 'Uppercase drill (range)', value: 'upperDrill' },
+        { label: 'Lowercase drill (range)', value: 'lowerDrill' },
+        { label: 'Vowels', value: 'vowels' },
+        { label: 'Print + cursive pairs (upper)', value: 'pairUpper' },
+        { label: 'Print + cursive pairs (lower)', value: 'pairLower' },
+      ] },
+      { label: 'Words — short vowels', children: [
+        { label: 'Short a', value: 'cvcA' },
+        { label: 'Short e', value: 'cvcE' },
+        { label: 'Short i', value: 'cvcI' },
+        { label: 'Short o', value: 'cvcO' },
+        { label: 'Short u', value: 'cvcU' },
+      ] },
+      { label: 'Words — silent-e', children: [
+        { label: 'a_e (cake)', value: 'vt_a_e' },
+        { label: 'e_e (eve)', value: 'vt_e_e' },
+        { label: 'i_e (bike)', value: 'vt_i_e' },
+        { label: 'o_e (home)', value: 'vt_o_e' },
+        { label: 'u_e (cute)', value: 'vt_u_e' },
+      ] },
+      { label: 'Words — vowel teams', children: [
+        { label: 'ai (rain)', value: 'vt_ai' },
+        { label: 'ay (day)', value: 'vt_ay' },
+        { label: 'ea (eat)', value: 'vt_ea' },
+        { label: 'ee (see)', value: 'vt_ee' },
+        { label: 'ew (new)', value: 'vt_ew' },
+        { label: 'ie as long i (pie)', value: 'vt_ie' },
+        { label: 'ie as long e (chief)', value: 'vt_ie_e' },
+        { label: 'igh (light)', value: 'vt_igh' },
+        { label: 'oa (boat)', value: 'vt_oa' },
+        { label: 'ow as long o (snow)', value: 'vt_ow' },
+        { label: 'ue (blue)', value: 'vt_ue' },
+        { label: 'y as long i (my)', value: 'vt_y' },
+        { label: 'y as long e (happy)', value: 'vt_y_e' },
+        { label: 'Open syllables (me, go)', value: 'vt_open' },
+      ] },
+      { label: 'Words — r-controlled', children: [
+        { label: 'ar (star)', value: 'rc_ar' },
+        { label: 'er (her)', value: 'rc_er' },
+        { label: 'ir (bird)', value: 'rc_ir' },
+        { label: 'or (horn)', value: 'rc_or' },
+        { label: 'ur (turn)', value: 'rc_ur' },
+      ] },
+      { label: 'Words — other vowels', children: [
+        { label: 'au (haul)', value: 'ov_au' },
+        { label: 'aw (saw)', value: 'ov_aw' },
+        { label: 'oi (coin)', value: 'ov_oi' },
+        { label: 'oo long (moon)', value: 'vt_oo_long' },
+        { label: 'oo short (book)', value: 'vt_oo_short' },
+        { label: 'ou (out)', value: 'ov_ou' },
+        { label: 'ow as /ou/ (cow)', value: 'ov_ow' },
+        { label: 'oy (boy)', value: 'ov_oy' },
+      ] },
+      { label: 'Words — consonant patterns', children: [
+        { label: 'Blends (bl, cl, fl, …)', value: 'blends' },
+        { label: 'Digraphs (sh, ch, th, …)', value: 'digraphs' },
+        { label: 'qu (queen)', value: 'qu' },
+        { label: 'Soft c (city)', value: 'cp_soft_c' },
+        { label: 'Soft g (gym)', value: 'cp_soft_g' },
+        { label: 'Silent kn (knee)', value: 'cp_kn' },
+        { label: 'Silent wr (write)', value: 'cp_wr' },
+        { label: 'Silent mb (lamb)', value: 'cp_mb' },
+        { label: 'Silent gn (sign)', value: 'cp_gn' },
+      ] },
+      { label: 'Words — final patterns', children: [
+        { label: 'ck (back)', value: 'fp_ck' },
+        { label: 'dge (badge)', value: 'fp_dge' },
+        { label: 'ng (sing)', value: 'fp_ng' },
+        { label: 'nk (bank)', value: 'fp_nk' },
+        { label: 'tch (catch)', value: 'fp_tch' },
+      ] },
+      { label: 'Words — endings', children: [
+        { label: '-ed (walked)', value: 'end_ed' },
+        { label: '-ing (running)', value: 'end_ing' },
+        { label: '-le (apple)', value: 'end_le' },
+      ] },
+      { label: 'Words — sight words', children: [
+        { label: 'Fry – 1–25', value: 'fry1' },
+        { label: 'Fry – 26–50', value: 'fry2' },
+        { label: 'Fry – 51–75', value: 'fry3' },
+        { label: 'Fry – 76–100', value: 'fry4' },
+        { label: 'Dolch – Pre-K', value: 'dolchPK' },
+        { label: 'Dolch – Kindergarten', value: 'dolchK' },
+        { label: 'Dolch – 1st grade', value: 'dolch1' },
+        { label: 'Dolch – 2nd grade', value: 'dolch2' },
+        { label: 'Dolch – 3rd grade', value: 'dolch3' },
+      ] },
+      { label: 'Words — themed', children: [
+        { label: 'Color words', value: 'colors' },
+        { label: 'Number words', value: 'numWords' },
+        { label: 'Days of the week', value: 'days' },
+        { label: 'Months', value: 'months' },
+      ] },
+      { label: 'Numbers', children: [
+        { label: 'Digits 0–9', value: 'digits' },
+      ] },
+      { label: 'Sentences', children: [
+        { label: 'Short declaratives', value: 'declaratives' },
+        { label: 'Questions', value: 'questions' },
+        { label: 'Exclamations', value: 'exclamations' },
+        { label: 'Tongue-twisters', value: 'twisters' },
+      ] },
+      { label: 'Punctuation', children: [
+        { label: 'Punctuation sampler', value: 'punct' },
+      ] },
+    ];
+
+    let practiceContentValue = 'both';
+    // True once the user has typed/edited after a pack load. Cleared each
+    // time loadPracticePack runs. Used to decide whether a font-size change
+    // should regenerate the pack (untouched) or just re-wrap typed content.
+    let packEdited = false;
+    // Path of category indices currently expanded. e.g. [0] means the first
+    // top-level category is open. Empty array = top level only.
+    let practiceMenuPath = [];
+
+    function findLabelForValue(value) {
+      function walk(items, trail) {
+        for (const item of items) {
+          if (item.value === value) return [...trail, item.label].join(' › ');
+          if (item.children) {
+            const r = walk(item.children, [...trail, item.label]);
+            if (r) return r;
+          }
+        }
+        return null;
+      }
+      return walk(PRACTICE_MENU, []);
+    }
+
+    function renderPracticeMenu() {
+      const root = $('#practiceMenu');
+      root.innerHTML = '';
+      // Always show top level. Then for each path entry, show that level too.
+      let level = PRACTICE_MENU;
+      const panels = [level];
+      for (const idx of practiceMenuPath) {
+        const node = level[idx];
+        if (!node || !node.children) break;
+        level = node.children;
+        panels.push(level);
+      }
+      panels.forEach((items, depth) => {
+        const panel = document.createElement('div');
+        panel.className = 'menu-panel';
+        items.forEach((item, i) => {
+          const el = document.createElement('div');
+          el.className = 'menu-item';
+          el.setAttribute('role', 'menuitem');
+          if (item.children) {
+            el.innerHTML = `<span>${item.label}</span><span class="chev">▸</span>`;
+            if (practiceMenuPath[depth] === i) el.classList.add('active');
+            el.addEventListener('click', () => {
+              practiceMenuPath = practiceMenuPath.slice(0, depth);
+              practiceMenuPath.push(i);
+              renderPracticeMenu();
+            });
+          } else {
+            el.innerHTML = `<span>${item.label}</span>`;
+            if (item.value === practiceContentValue) el.classList.add('selected');
+            el.addEventListener('click', () => selectPracticeContent(item.value));
+          }
+          panel.appendChild(el);
+        });
+        root.appendChild(panel);
+      });
+    }
+
+    function positionPracticeMenu() {
+      const btn = $('#practiceContentBtn');
+      const root = $('#practiceMenu');
+      const r = btn.getBoundingClientRect();
+      root.style.top = `${r.bottom + 4}px`;
+      root.style.left = `${r.left}px`;
+    }
+
+    function openPracticeMenu() {
+      const root = $('#practiceMenu');
+      practiceMenuPath = [];
+      renderPracticeMenu();
+      root.classList.add('open');
+      root.setAttribute('aria-hidden', 'false');
+      $('#practiceContentBtn').setAttribute('aria-expanded', 'true');
+      positionPracticeMenu();
+      // Defer attaching outside-click so the click that opened the menu
+      // doesn't immediately close it. Capture phase so even handlers that
+      // stop propagation can't prevent dismissal.
+      setTimeout(() => {
+        document.addEventListener('mousedown', onPracticeMenuOutsideClick, true);
+        document.addEventListener('click', onPracticeMenuOutsideClick, true);
+        document.addEventListener('keydown', onPracticeMenuKey);
+        window.addEventListener('resize', positionPracticeMenu);
+        window.addEventListener('scroll', positionPracticeMenu, true);
+      }, 0);
+    }
+
+    function closePracticeMenu() {
+      const root = $('#practiceMenu');
+      root.classList.remove('open');
+      root.setAttribute('aria-hidden', 'true');
+      $('#practiceContentBtn').setAttribute('aria-expanded', 'false');
+      document.removeEventListener('mousedown', onPracticeMenuOutsideClick, true);
+      document.removeEventListener('click', onPracticeMenuOutsideClick, true);
+      document.removeEventListener('keydown', onPracticeMenuKey);
+      window.removeEventListener('resize', positionPracticeMenu);
+      window.removeEventListener('scroll', positionPracticeMenu, true);
+    }
+
+    function onPracticeMenuOutsideClick(e) {
+      if ($('#practiceMenu').contains(e.target)) return;
+      if ($('#practiceContentBtn').contains(e.target)) return;
+      closePracticeMenu();
+    }
+
+    function onPracticeMenuKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); closePracticeMenu(); }
+    }
+
+    function selectPracticeContent(value) {
+      practiceContentValue = value;
+      const label = findLabelForValue(value) || '— choose —';
+      $('#practiceContentLabel').textContent = label;
+      $('#practiceContentBtn').title = label;
+      const pack = PRACTICE_PACKS[value];
+      if (pack && pack.drill) {
+        $('#drillRangeGroup').classList.remove('hidden');
+        populateDrillRanges();
+      } else {
+        $('#drillRangeGroup').classList.add('hidden');
+      }
+      // Initial learning / Practice & review only meaningful when the pack
+      // is a randomized word list. Hide the toggle for letter packs,
+      // drills, sentences, etc.
+      $('#practiceLearningModeGroup').classList.toggle('hidden', !(pack && pack.shuffle));
+      closePracticeMenu();
+      loadPracticePack();
+    }
+
+    function populateDrillRanges() {
+      const from = $('#drillFrom');
+      const to = $('#drillTo');
+      const isUpper = practiceContentValue === 'upperDrill';
+      const letters = isUpper
+        ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        : 'abcdefghijklmnopqrstuvwxyz';
+      from.innerHTML = '';
+      to.innerHTML = '';
+      for (const ch of letters) {
+        from.appendChild(new Option(ch, ch));
+        to.appendChild(new Option(ch, ch));
+      }
+      from.value = letters[0];
+      to.value = letters[letters.length - 1];
+    }
+
+    function buildDrillLines(which, fromCh, toCh) {
+      const letters = which === 'upper'
+        ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        : 'abcdefghijklmnopqrstuvwxyz';
+      let i = letters.indexOf(fromCh);
+      let j = letters.indexOf(toCh);
+      if (i < 0 || j < 0) return [];
+      if (j < i) [i, j] = [j, i];
+      // Build a wide string per letter; cascade trims to page width per line.
+      const lines = [];
+      for (let k = i; k <= j; k++) {
+        const ch = letters[k];
+        // 40 repeats with spaces is way more than any page; cascade truncates.
+        lines.push((ch + ' ').repeat(40).trim());
+      }
+      return lines;
+    }
+
+    // Word-list packs use { words: [...] } (preferred) or { lines: [...] }
+    // (legacy, where each line is a space-separated string). Both normalize
+    // to a flat ordered array of words for layout time.
+    function packWords(pack) {
+      if (pack.words) return pack.words;
+      if (pack.lines) return pack.lines.flatMap(s => s.split(/\s+/).filter(Boolean));
+      return [];
+    }
+
+    // Initial-learning layout: place every word in authored order, packed
+    // into width-constrained lines. After the authored set is exhausted,
+    // continue filling the page with shuffled repeats of the same bag so
+    // there are no blank lines below the practice content.
+    function generateOrderedWordLines(words, font) {
+      const avail = availableWidthPx();
+      const out = [];
+      let line = '';
+      function flushAndStart(w) {
+        if (line) out.push(line);
+        line = w;
+      }
+      function placeWord(w) {
+        const candidate = line ? line + ' ' + w : w;
+        const segs = [{ font, text: candidate }];
+        if (measureLinePixelWidth(segs) > avail) flushAndStart(w);
+        else line = candidate;
+      }
+      const TARGET_LINES = editableLinesPerPage();
+      for (const w of words) {
+        if (out.length + (line ? 1 : 0) >= TARGET_LINES) break;
+        placeWord(w);
+      }
+      // Fill the rest of the page with shuffled repeats.
+      let pool = [];
+      function nextRandom() {
+        if (pool.length === 0) {
+          pool = words.slice();
+          for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+          }
+        }
+        return pool.pop();
+      }
+      while (out.length + (line ? 1 : 0) < TARGET_LINES && words.length) {
+        placeWord(nextRandom());
+      }
+      if (line) out.push(line);
+      return out;
+    }
+
+    // Build N lines of randomly-sampled words from a bag, where each line
+    // is packed with as many words as fit in the available page width.
+    // The bag is drawn without replacement and refilled (re-shuffled) when
+    // empty, so words repeat as needed to fill the page.
+    function generateFilledWordLines(words, font) {
+      const avail = availableWidthPx();
+      const bag = words.slice();
+      if (bag.length === 0) return [];
+      let pool = [];
+      function refill() {
+        pool = [...bag];
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+      }
+      function nextWord() {
+        if (pool.length === 0) refill();
+        return pool.pop();
+      }
+      const TARGET_LINES = editableLinesPerPage();
+      const lines = [];
+      for (let n = 0; n < TARGET_LINES; n++) {
+        let line = '';
+        while (true) {
+          const w = nextWord();
+          const candidate = line ? line + ' ' + w : w;
+          const segs = [{ font, text: candidate }];
+          if (measureLinePixelWidth(segs) > avail) {
+            if (!line) { line = candidate; break; }  // single word too wide
+            pool.push(w);  // put it back for next line
+            break;
+          }
+          line = candidate;
+        }
+        lines.push(line);
+      }
+      return lines;
+    }
+
+    function loadPracticePack() {
+      const id = practiceContentValue;
+      const drillGroup = $('#drillRangeGroup');
+      if (!id) { drillGroup.classList.add('hidden'); return; }
+      const pack = PRACTICE_PACKS[id];
+      if (!pack) { drillGroup.classList.add('hidden'); return; }
+
+      // Blank page: clear all content so the user starts from scratch.
+      // Pre-populate with enough empty editable lines to fill the page so
+      // the user can click into any line and start typing there.
+      if (pack.blank) {
+        drillGroup.classList.add('hidden');
+        const n = editableLinesPerPage();
+        editorLines = Array.from({ length: n }, () => []);
+        packEdited = false;
+        renderPreview();
+        return;
+      }
+
+      // Mixed-font letter packs (print + cursive comparison) build their
+      // editorLines directly so each character can carry its own font.
+      const mixed = mixedFontLetterLines(id);
+      if (mixed) {
+        drillGroup.classList.add('hidden');
+        editorLines = mixed;
+        packEdited = false;
+        renderPreview();
+        ensureLinesFit();
+        renderPreview();
+        return;
+      }
+
+      let strings;
+      if (pack.drill) {
+        drillGroup.classList.remove('hidden');
+        strings = buildDrillLines(pack.drill, $('#drillFrom').value, $('#drillTo').value);
+      } else {
+        drillGroup.classList.add('hidden');
+        // Word-list packs (any pack with shuffle: true) treat their content
+        // as a flat ordered word bag. Initial learning mode lays the words
+        // out in authored order, packed to fit each line; Practice & review
+        // shuffles and repeats to fill a typical page.
+        const learningMode = getVal('practiceLearningMode') || 'initial';
+        if (pack.shuffle) {
+          const words = packWords(pack);
+          strings = learningMode === 'review'
+            ? generateFilledWordLines(words, activeFont)
+            : generateOrderedWordLines(words, activeFont);
+        } else {
+          strings = pack.lines;
+        }
+      }
+      // Respect the current activeFont for all loaded content.
+      editorLines = strings.map(s => s.length ? [{ font: activeFont, text: s }] : []);
+      packEdited = false;
+      renderPreview();
+      ensureLinesFit();
+      renderPreview();
+    }
+
+    // Returns Segment[][] for the mixed-font letter packs, or null if `id`
+    // is not one of those packs. Splits the alphabet into width-fitting
+    // chunks so print and cursive content stays adjacent without cascade
+    // splitting them onto distant pages of lines.
+    function mixedFontLetterLines(id) {
+      if (id !== 'pairUpper' && id !== 'pairLower') return null;
+      const letters = id === 'pairUpper'
+        ? 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        : 'abcdefghijklmnopqrstuvwxyz';
+      const avail = availableWidthPx();
+
+      // Cursive glyphs can have ink (capital crossbars, flourishes, exit
+      // strokes) that extends past the glyph's advance width into the next
+      // character's cell. Measure the visual overhang per char
+      // (actualBoundingBoxRight - width) and pad the trailing print-space
+      // after each cursive letter with enough extra spaces to clear it.
+      const writingHeight = parseInt($('#fontSize').value);
+      const printSize  = fontSizeFor('print',  writingHeight);
+      const cursiveSize = fontSizeFor('cursive', writingHeight);
+      const printFam = FONT_METRICS_FOR.print.fontFamily;
+      const cursiveFam = FONT_METRICS_FOR.cursive.fontFamily;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = `${printSize}px ${printFam}`;
+      const spaceW = ctx.measureText(' ').width || 1;
+      ctx.font = `${cursiveSize}px ${cursiveFam}`;
+      const overhangSpaces = {};
+      for (const ch of letters) {
+        const m = ctx.measureText(ch);
+        const right = m.actualBoundingBoxRight != null ? m.actualBoundingBoxRight : m.width;
+        const overhang = Math.max(0, right - m.width);
+        // 1 extra space for a visual gap after the overhang clears.
+        overhangSpaces[ch] = Math.ceil(overhang / spaceW) + 1;
+      }
+
+      const out = [];
+      function chunkSegs(chs) {
+        const segs = [];
+        for (let i = 0; i < chs.length; i++) {
+          const ch = chs[i];
+          segs.push({ font: 'print', text: ch + ' ' });
+          segs.push({ font: 'cursive', text: ch });
+          if (i < chs.length - 1) {
+            segs.push({ font: 'print', text: ' '.repeat(overhangSpaces[ch] || 1) });
+          }
+        }
+        return segs;
+      }
+      let chunk = [];
+      function emitChunk() {
+        if (!chunk.length) return;
+        out.push(coalesceSegments(chunkSegs(chunk)));
+        chunk = [];
+      }
+      for (const ch of letters) {
+        const candidate = [...chunk, ch];
+        if (measureLinePixelWidth(chunkSegs(candidate)) > avail && chunk.length) {
+          emitChunk();
+        }
+        chunk.push(ch);
+      }
+      emitChunk();
+      return out;
+    }
+
     function wireControls() {
       const renderInputs = [
         ...$$('input[name="mode"]'),
@@ -2098,8 +3401,27 @@
 
       $('#fontSize').addEventListener('input', () => {
         updateFontSizeLabel();
-        renderPreview();
+        // Width that fits a line depends on font size. If a practice pack is
+        // currently loaded, regenerate it for the new size (per-letter
+        // cursive overhang and per-line word counts both depend on size).
+        // Otherwise just re-flow whatever the user has typed.
+        if (practiceContentValue && PRACTICE_PACKS[practiceContentValue] && !packEdited) {
+          loadPracticePack();
+        } else {
+          ensureLinesFit();
+          tightenLines();
+          renderPreview();
+        }
       });
+
+      $('#practiceContentBtn').addEventListener('click', () => {
+        if ($('#practiceMenu').classList.contains('open')) closePracticeMenu();
+        else openPracticeMenu();
+      });
+      $('#drillFrom').addEventListener('change', loadPracticePack);
+      $('#drillTo').addEventListener('change', loadPracticePack);
+      $$('input[name="practiceLearningMode"]').forEach(r =>
+        r.addEventListener('change', loadPracticePack));
 
       $('#traceReps').addEventListener('change', renderPreview);
       $('#blankLines').addEventListener('change', renderPreview);
@@ -2114,8 +3436,18 @@
         btn.addEventListener('click', () => {
           const font = btn.dataset.font;
           const sel = window.getSelection();
-          if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+          const hasSelection = sel && sel.rangeCount > 0 && !sel.isCollapsed;
+          const preview = $('#preview');
+          const caretInDoc = sel && sel.rangeCount > 0 &&
+                             preview && preview.contains(sel.anchorNode);
+          if (hasSelection) {
             applyFontToSelection(font);
+          } else if (!caretInDoc && isEditorUniformFont() &&
+                     currentEditorFont() !== font) {
+            // No caret in the document and the page is currently all one
+            // font: convert the whole document. If a caret is placed in the
+            // document, the user is mid-edit; just set the active font.
+            applyFontToAll(font);
           }
           setActiveFont(font);
         });
@@ -2125,6 +3457,16 @@
     // Initialize after all fonts (including cursive) are loaded
     wireControls();
     attachEditingListeners();
+    // Reflect the default-selected pack in the trigger label.
+    {
+      const lbl = findLabelForValue(practiceContentValue);
+      if (lbl) {
+        $('#practiceContentLabel').textContent = lbl;
+        $('#practiceContentBtn').title = lbl;
+      }
+      const initPack = PRACTICE_PACKS[practiceContentValue];
+      $('#practiceLearningModeGroup').classList.toggle('hidden', !(initPack && initPack.shuffle));
+    }
     updateVisibility();
     updateOrientation();
 
