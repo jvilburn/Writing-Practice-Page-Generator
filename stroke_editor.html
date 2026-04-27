@@ -32,8 +32,10 @@
 <body>
 <h2>Stroke Guidance Editor</h2>
 <p class="info">
-  Click a sub-glyph to select it (arrow or number). Drag the body to translate.
-  Drag the rotation handle (small circle) to rotate. Hit Save to write back to the font.
+  Click a sub-glyph to select it. Arrow sub-glyphs show their centerline as Bezier handles —
+  drag anchor squares to move endpoints, drag round control handles to bend the curve.
+  <b>Double-click on the curve</b> to add a node, <b>Shift+double-click on an anchor</b> to remove a node.
+  Number sub-glyphs (and arrows without centerlines) keep the old translate/rotate mode. Save writes back to the font.
 </p>
 
 <div class="section-label">Uppercase</div>
@@ -43,6 +45,7 @@
 
 <div class="controls">
   <span>Scale: <input type="range" id="scale" min="0.5" max="3" step="0.25" value="1"> <span id="scale-val">1</span>x</span>
+  <span>Stroke width: <input type="number" id="font-width" min="2" max="60" step="1" style="width:60px"></span>
   <button id="save-btn" style="background:#2ecc71;color:#fff;font-weight:bold">Save to Font</button>
   <button id="reload-btn">Reload from Font</button>
   <span id="status"></span>
@@ -60,29 +63,28 @@
 let currentChar = 'A';
 let scale = 1;
 let fontData = null;  // { cap, glyphs: {charName: {advance, layers: [{name, contours: [[{x,y,on}]], transform: {dx,dy,rot}}]}} }
+let centerlines = null;  // { fontWidth, head: {vertices}, glyphs: {layerName: {centerline: {p0, segments}}} }
+let centerlinesEdited = false;
 let modified = new Set();
 let selectedLayer = -1;  // index into current char's layers (excluding base)
-let drag = null;  // { type: 'translate'|'rotate', startX, startY, origTransform }
+let drag = null;  // { type, ... }
 
 // Canvas constants
 const CAP = 688;  // will be overwritten by font data
 const PAD = 60;
 const VISIBLE_TOP = -180;   // font units above baseline we show
 const VISIBLE_BOTTOM = 900; // font units below baseline we show
+let __canvasXShift = 0;     // extra px on the left for handles past x=0
+let __canvasYShift = 0;     // extra px on top for handles above fontTop()
 
 function fontToPixel(x, y) {
-  // Font y goes up, screen y goes down. Scale by `scale`.
-  // Visible range: x=[0, advance], y in font=[VISIBLE_BOTTOM_fontY .. VISIBLE_TOP_fontY]
-  // We want y=VISIBLE_TOP (in code units; in FONT units that means cap*something) at top of canvas
-  const px = x * scale + PAD;
-  // Font y: 0=baseline, cap=cap top. Canvas y: 0=top, grows down.
-  // Let canvas_y for font_y = (VISIBLE_TOP - font_y) * scale + PAD
-  const py = (fontTop() - y) * scale + PAD;
+  const px = x * scale + PAD + __canvasXShift;
+  const py = (fontTop() - y) * scale + PAD + __canvasYShift;
   return [px, py];
 }
 
 function pixelToFont(px, py) {
-  return [(px - PAD) / scale, fontTop() - (py - PAD) / scale];
+  return [(px - PAD - __canvasXShift) / scale, fontTop() - (py - PAD - __canvasYShift) / scale];
 }
 
 function fontTop() {
@@ -94,12 +96,124 @@ function fontBottom() {
 }
 
 async function loadFont() {
-  const res = await fetch('/font-data');
-  if (!res.ok) throw new Error('Failed to fetch font data');
-  fontData = await res.json();
-  console.log('Loaded font data', fontData);
+  const [resFont, resCl] = await Promise.all([
+    fetch('/font-data'),
+    fetch('/centerlines'),
+  ]);
+  if (!resFont.ok) throw new Error('Failed to fetch font data');
+  fontData = await resFont.json();
+  centerlines = resCl.ok
+    ? await resCl.json()
+    : { fontWidth: 14, head: { vertices: [] }, glyphs: {} };
+  centerlinesEdited = false;
+  document.getElementById('font-width').value = centerlines.fontWidth || 14;
   buildGrid();
-  selectChar('A');
+  selectChar(currentChar || 'A');
+}
+
+// ---- centerline math (mirrors server.py / regenerate_arrow_contours) ----
+
+function getCenterlineForLayer(layerName) {
+  if (!centerlines || !centerlines.glyphs) return null;
+  const e = centerlines.glyphs[layerName];
+  return e ? e.centerline : null;
+}
+
+function sampleSegment(p0, p1, p2, p3, n) {
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const t = n > 1 ? k / (n - 1) : 0;
+    const u = 1 - t;
+    const x = u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0];
+    const y = u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1];
+    const dx = 3*u*u*(p1[0]-p0[0]) + 6*u*t*(p2[0]-p1[0]) + 3*t*t*(p3[0]-p2[0]);
+    const dy = 3*u*u*(p1[1]-p0[1]) + 6*u*t*(p2[1]-p1[1]) + 3*t*t*(p3[1]-p2[1]);
+    const norm = Math.hypot(dx, dy) || 1;
+    out.push([x, y, dx/norm, dy/norm]);
+  }
+  return out;
+}
+
+function samplePath(cl, total) {
+  if (!cl || !cl.segments || cl.segments.length === 0) return [];
+  const seg_lens = [];
+  let prev = cl.p0;
+  for (const seg of cl.segments) {
+    const pts = sampleSegment(prev, seg.p1, seg.p2, seg.p3, 11);
+    let L = 0;
+    for (let k = 0; k < 10; k++) {
+      L += Math.hypot(pts[k+1][0]-pts[k][0], pts[k+1][1]-pts[k][1]);
+    }
+    seg_lens.push(L);
+    prev = seg.p3;
+  }
+  const totalL = seg_lens.reduce((a, b) => a + b, 0) || 1;
+  const out = [];
+  prev = cl.p0;
+  for (let i = 0; i < cl.segments.length; i++) {
+    const seg = cl.segments[i];
+    const n = Math.max(2, Math.round(total * seg_lens[i] / totalL));
+    let segSamples = sampleSegment(prev, seg.p1, seg.p2, seg.p3, n);
+    if (i > 0) segSamples = segSamples.slice(1);
+    out.push(...segSamples);
+    prev = seg.p3;
+  }
+  return out;
+}
+
+const BODY_PULLBACK_FRACTION = 0.9;
+
+function centerlineToContours(cl, fontWidth, head) {
+  const samples = samplePath(cl, 32);
+  if (samples.length === 0) return [[], []];
+
+  // Arrowhead pullback so the body ends inside the arrowhead.
+  const verts = head.vertices || [];
+  const arrowheadLength = verts.reduce((m, v) => Math.max(m, v[0]), 0);
+  const pullback = arrowheadLength * BODY_PULLBACK_FRACTION;
+
+  // Cumulative arc length, then truncate samples to (total - pullback).
+  const cum = [0];
+  for (let i = 1; i < samples.length; i++) {
+    cum.push(cum[i-1] + Math.hypot(samples[i][0] - samples[i-1][0],
+                                   samples[i][1] - samples[i-1][1]));
+  }
+  const total = cum[cum.length - 1];
+  const target = Math.max(0, total - pullback);
+  const bodySamples = [];
+  for (let i = 0; i < samples.length; i++) {
+    if (cum[i] <= target) {
+      bodySamples.push(samples[i]);
+    } else {
+      const prev = samples[i-1];
+      const span = cum[i] - cum[i-1];
+      const frac = span > 0 ? (target - cum[i-1]) / span : 0;
+      bodySamples.push([
+        prev[0] + frac*(samples[i][0]-prev[0]),
+        prev[1] + frac*(samples[i][1]-prev[1]),
+        samples[i][2], samples[i][3],
+      ]);
+      break;
+    }
+  }
+  if (bodySamples.length < 2) bodySamples.push(...samples.slice(0, 2));
+
+  const halfW = fontWidth / 2;
+  const top = [], bot = [];
+  for (const [x, y, tx, ty] of bodySamples) {
+    const px = -ty, py = tx;
+    top.push([x + px*halfW, y + py*halfW]);
+    bot.push([x - px*halfW, y - py*halfW]);
+  }
+  const body = top.concat(bot.slice().reverse());
+
+  const last = samples[samples.length - 1];
+  const tipX = last[0], tipY = last[1], tx = last[2], ty = last[3];
+  const headContour = [];
+  for (const [u, v] of verts) {
+    headContour.push([tipX - u*tx + v*ty, tipY - u*ty - v*tx]);
+  }
+  return [body, headContour];
 }
 
 function buildGrid() {
@@ -175,10 +289,32 @@ function render() {
   const g = getCurrentGlyph();
   if (!g) return;
 
-  const width = Math.ceil(g.advance * scale) + PAD * 2;
-  const height = Math.ceil((fontTop() - fontBottom()) * scale) + PAD;
+  // Canvas spans the glyph's advance + visible y range, plus extra room
+  // for any centerline handles (anchors or Bezier controls) that may sit
+  // outside that bounding box — without it the user can't grab them.
+  let xLow = 0, xHigh = g.advance;
+  let yLow = fontBottom(), yHigh = fontTop();
+  for (const layer of g.layers.slice(1)) {
+    const cl = getCenterlineForLayer(layer.name);
+    if (!cl) continue;
+    const pts = [cl.p0];
+    for (const seg of cl.segments) pts.push(seg.p1, seg.p2, seg.p3);
+    for (const [x, y] of pts) {
+      if (x < xLow) xLow = x;
+      if (x > xHigh) xHigh = x;
+      if (y < yLow) yLow = y;
+      if (y > yHigh) yHigh = y;
+    }
+  }
+  const extra = 20;
+  const xLeftPx = Math.max(0, Math.ceil((-xLow + extra) * scale));
+  const yTopPx = Math.max(0, Math.ceil((yHigh - fontTop() + extra) * scale));
+  const width = Math.ceil((xHigh - xLow + 2 * extra) * scale) + PAD * 2;
+  const height = Math.ceil((yHigh - yLow + 2 * extra) * scale) + PAD;
   bg.width = overlay.width = width;
   bg.height = overlay.height = height;
+  __canvasXShift = xLeftPx;
+  __canvasYShift = yTopPx;
 
   const bgCtx = bg.getContext('2d');
   const ol = overlay.getContext('2d');
@@ -208,11 +344,17 @@ function render() {
   g.layers.forEach((layer, idx) => {
     const isBase = idx === 0;
     const isSelected = (selectedLayer === idx - 1);
-    ol.fillStyle = isBase ? 'rgba(0,0,0,0.15)' : (isSelected ? 'rgba(230,80,80,0.9)' : 'rgba(230,80,80,0.6)');
-    drawLayer(ol, layer);
-
-    if (!isBase && isSelected) {
-      drawHandles(ol, layer);
+    const cl = !isBase ? getCenterlineForLayer(layer.name) : null;
+    if (cl) {
+      // Centerline-driven arrow: render the regenerated body+head, then
+      // overlay the centerline + handles.
+      ol.fillStyle = isSelected ? 'rgba(230,80,80,0.9)' : 'rgba(230,80,80,0.6)';
+      drawCenterlineContours(ol, cl);
+      if (isSelected) drawCenterlineHandles(ol, cl);
+    } else {
+      ol.fillStyle = isBase ? 'rgba(0,0,0,0.15)' : (isSelected ? 'rgba(230,80,80,0.9)' : 'rgba(230,80,80,0.6)');
+      drawLayer(ol, layer);
+      if (!isBase && isSelected) drawHandles(ol, layer);
     }
   });
 
@@ -241,6 +383,69 @@ function drawLayer(ctx, layer) {
     ctx.closePath();
   }
   ctx.fill('evenodd');
+}
+
+function drawCenterlineContours(ctx, cl) {
+  const fontWidth = centerlines.fontWidth || 14;
+  const contours = centerlineToContours(cl, fontWidth, centerlines.head || {vertices: []});
+  ctx.beginPath();
+  for (const contour of contours) {
+    if (!contour.length) continue;
+    let [px, py] = fontToPixel(contour[0][0], contour[0][1]);
+    ctx.moveTo(px, py);
+    for (let i = 1; i < contour.length; i++) {
+      [px, py] = fontToPixel(contour[i][0], contour[i][1]);
+      ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+  ctx.fill('evenodd');
+}
+
+function drawCenterlineHandles(ctx, cl) {
+  // Centerline path in cyan
+  const samples = samplePath(cl, 60);
+  ctx.strokeStyle = '#0070c0';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < samples.length; i++) {
+    const [px, py] = fontToPixel(samples[i][0], samples[i][1]);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Anchor squares (p0 + each segment.p3) and Bezier handles.
+  ctx.lineWidth = 1;
+  const anchors = [cl.p0].concat(cl.segments.map(s => s.p3));
+  let prev = cl.p0;
+  for (let i = 0; i < cl.segments.length; i++) {
+    const seg = cl.segments[i];
+    // Lines from anchors to control points.
+    ctx.strokeStyle = '#aaa';
+    ctx.beginPath();
+    let [ax, ay] = fontToPixel(prev[0], prev[1]);
+    let [c1x, c1y] = fontToPixel(seg.p1[0], seg.p1[1]);
+    let [c2x, c2y] = fontToPixel(seg.p2[0], seg.p2[1]);
+    let [bx, by] = fontToPixel(seg.p3[0], seg.p3[1]);
+    ctx.moveTo(ax, ay); ctx.lineTo(c1x, c1y);
+    ctx.moveTo(bx, by); ctx.lineTo(c2x, c2y);
+    ctx.stroke();
+    // Control circles.
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#0070c0';
+    for (const [cx, cy] of [[c1x, c1y], [c2x, c2y]]) {
+      ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    }
+    prev = seg.p3;
+  }
+  // Anchor squares (drawn on top so they're not covered by control circles).
+  for (let i = 0; i < anchors.length; i++) {
+    const [px, py] = fontToPixel(anchors[i][0], anchors[i][1]);
+    ctx.fillStyle = i === 0 ? '#27ae60' : (i === anchors.length - 1 ? '#2c3e50' : '#3498db');
+    ctx.fillRect(px - 6, py - 6, 12, 12);
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(px - 6, py - 6, 12, 12);
+  }
 }
 
 function drawHandles(ctx, layer) {
@@ -279,48 +484,85 @@ function drawHandles(ctx, layer) {
 }
 
 function hitTest(px, py) {
-  // Returns { layerIdx, type } or null
+  // Returns { layerIdx, type, ... } or null
   const g = getCurrentGlyph();
   if (!g) return null;
 
-  // Check handles of currently selected layer first
+  // Check the currently selected layer's handles first.
   if (selectedLayer >= 0 && selectedLayer + 1 < g.layers.length) {
     const layer = g.layers[selectedLayer + 1];
-    const c = layerCentroid(layer);
-    const tc = {
-      x: c.x + (layer.transform.dx || 0),
-      y: c.y + (layer.transform.dy || 0),
-    };
-    const [cx, cy] = fontToPixel(tc.x, tc.y);
-    // Translate square
-    if (Math.abs(px - cx) <= 8 && Math.abs(py - cy) <= 8) {
-      return { layerIdx: selectedLayer, type: 'translate' };
-    }
-    // Rotate handle
-    const rad = (layer.transform.rot || 0) * Math.PI / 180;
-    const hx = cx + Math.sin(rad) * 45;
-    const hy = cy - Math.cos(rad) * 45;
-    if (Math.hypot(px - hx, py - hy) <= 10) {
-      return { layerIdx: selectedLayer, type: 'rotate' };
+    const cl = getCenterlineForLayer(layer.name);
+    if (cl) {
+      // Centerline mode: anchor squares (p0 + each segment.p3) and
+      // control circles (each segment.p1, p2).
+      const anchors = [{ ref: 'p0' }].concat(
+        cl.segments.map((_, i) => ({ ref: 'segP3', segIdx: i }))
+      );
+      for (const a of anchors) {
+        const pt = a.ref === 'p0' ? cl.p0 : cl.segments[a.segIdx].p3;
+        const [ax, ay] = fontToPixel(pt[0], pt[1]);
+        if (Math.abs(px - ax) <= 8 && Math.abs(py - ay) <= 8) {
+          return { layerIdx: selectedLayer, type: 'cl-anchor', ...a };
+        }
+      }
+      for (let i = 0; i < cl.segments.length; i++) {
+        for (const which of ['p1', 'p2']) {
+          const pt = cl.segments[i][which];
+          const [cx, cy] = fontToPixel(pt[0], pt[1]);
+          if (Math.hypot(px - cx, py - cy) <= 7) {
+            return { layerIdx: selectedLayer, type: 'cl-handle', segIdx: i, which };
+          }
+        }
+      }
+    } else {
+      // Translate/rotate mode (legacy).
+      const c = layerCentroid(layer);
+      const tc = {
+        x: c.x + (layer.transform.dx || 0),
+        y: c.y + (layer.transform.dy || 0),
+      };
+      const [cx, cy] = fontToPixel(tc.x, tc.y);
+      if (Math.abs(px - cx) <= 8 && Math.abs(py - cy) <= 8) {
+        return { layerIdx: selectedLayer, type: 'translate' };
+      }
+      const rad = (layer.transform.rot || 0) * Math.PI / 180;
+      const hx = cx + Math.sin(rad) * 45;
+      const hy = cy - Math.cos(rad) * 45;
+      if (Math.hypot(px - hx, py - hy) <= 10) {
+        return { layerIdx: selectedLayer, type: 'rotate' };
+      }
     }
   }
 
-  // Otherwise hit-test every non-base layer's bbox
+  // Otherwise hit-test every non-base layer's bbox to allow selecting it.
   for (let i = g.layers.length - 1; i >= 1; i--) {
     const layer = g.layers[i];
-    // Compute transformed bbox
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const contour of layer.contours) {
-      for (const pt of contour) {
-        const t = applyTransform(pt, layer.transform);
-        if (t.x < minX) minX = t.x;
-        if (t.y < minY) minY = t.y;
-        if (t.x > maxX) maxX = t.x;
-        if (t.y > maxY) maxY = t.y;
+    const cl = getCenterlineForLayer(layer.name);
+    if (cl) {
+      // Use regenerated body+head bbox so picking matches what's drawn.
+      const contours = centerlineToContours(cl, centerlines.fontWidth || 14, centerlines.head || {vertices: []});
+      for (const contour of contours) {
+        for (const [x, y] of contour) {
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    } else {
+      for (const contour of layer.contours) {
+        for (const pt of contour) {
+          const t = applyTransform(pt, layer.transform);
+          if (t.x < minX) minX = t.x;
+          if (t.y < minY) minY = t.y;
+          if (t.x > maxX) maxX = t.x;
+          if (t.y > maxY) maxY = t.y;
+        }
       }
     }
-    const [x1, y1] = fontToPixel(minX, maxY);  // top-left (maxY because font y up)
-    const [x2, y2] = fontToPixel(maxX, minY);  // bottom-right
+    const [x1, y1] = fontToPixel(minX, maxY);
+    const [x2, y2] = fontToPixel(maxX, minY);
     if (px >= x1 && px <= x2 && py >= y1 && py <= y2) {
       return { layerIdx: i - 1, type: 'select' };
     }
@@ -337,8 +579,17 @@ function updateStrokeInfo() {
   let html = `<strong>${currentChar}</strong> (advance: ${g.advance}) — ${nLayers} guidance sub-glyphs`;
   if (selectedLayer >= 0) {
     const l = g.layers[selectedLayer + 1];
-    html += `<br>Selected: <code>${l.name}</code> &nbsp; dx=${(l.transform.dx||0).toFixed(0)} dy=${(l.transform.dy||0).toFixed(0)} rot=${(l.transform.rot||0).toFixed(1)}°`;
-    html += ` <button onclick="resetLayer()">Reset</button>`;
+    const cl = getCenterlineForLayer(l.name);
+    if (cl) {
+      const tip = cl.segments.length ? cl.segments[cl.segments.length - 1].p3 : cl.p0;
+      html += `<br>Selected: <code>${l.name}</code> &nbsp;`
+            + `centerline (${cl.segments.length} seg${cl.segments.length !== 1 ? 's' : ''})  `
+            + `cap=(${cl.p0[0].toFixed(0)},${cl.p0[1].toFixed(0)})  `
+            + `tip=(${tip[0].toFixed(0)},${tip[1].toFixed(0)})`;
+    } else {
+      html += `<br>Selected: <code>${l.name}</code> &nbsp; dx=${(l.transform.dx||0).toFixed(0)} dy=${(l.transform.dy||0).toFixed(0)} rot=${(l.transform.rot||0).toFixed(1)}°`;
+      html += ` <button onclick="resetLayer()">Reset</button>`;
+    }
   }
   container.innerHTML = html;
 }
@@ -371,19 +622,31 @@ overlay.addEventListener('mousedown', e => {
     selectedLayer = hit.layerIdx;
     render();
     updateStrokeInfo();
+    return;
+  }
+  selectedLayer = hit.layerIdx;
+  const g = getCurrentGlyph();
+  const layer = g.layers[selectedLayer + 1];
+  if (hit.type === 'cl-anchor' || hit.type === 'cl-handle') {
+    const cl = getCenterlineForLayer(layer.name);
+    drag = {
+      type: hit.type,
+      startX: mx, startY: my,
+      ref: hit.ref, segIdx: hit.segIdx, which: hit.which,
+      origPoint: hit.type === 'cl-anchor'
+        ? (hit.ref === 'p0' ? [...cl.p0] : [...cl.segments[hit.segIdx].p3])
+        : [...cl.segments[hit.segIdx][hit.which]],
+    };
   } else {
-    selectedLayer = hit.layerIdx;
-    const g = getCurrentGlyph();
-    const layer = g.layers[selectedLayer + 1];
     drag = {
       type: hit.type,
       startX: mx, startY: my,
       origTransform: { ...layer.transform },
       centroid: layerCentroid(layer),
     };
-    render();
-    updateStrokeInfo();
   }
+  render();
+  updateStrokeInfo();
 });
 
 overlay.addEventListener('mousemove', e => {
@@ -393,6 +656,27 @@ overlay.addEventListener('mousemove', e => {
   const my = e.clientY - rect.top;
   const g = getCurrentGlyph();
   const layer = g.layers[selectedLayer + 1];
+
+  if (drag.type === 'cl-anchor' || drag.type === 'cl-handle') {
+    const cl = getCenterlineForLayer(layer.name);
+    const [fx1, fy1] = pixelToFont(drag.startX, drag.startY);
+    const [fx2, fy2] = pixelToFont(mx, my);
+    const dx = fx2 - fx1;
+    const dy = fy2 - fy1;
+    const newPt = [drag.origPoint[0] + dx, drag.origPoint[1] + dy];
+    if (drag.type === 'cl-anchor') {
+      if (drag.ref === 'p0') cl.p0 = newPt;
+      else cl.segments[drag.segIdx].p3 = newPt;
+    } else {
+      cl.segments[drag.segIdx][drag.which] = newPt;
+    }
+    centerlinesEdited = true;
+    modified.add(currentChar);
+    updateButtonStyles();
+    render();
+    updateStrokeInfo();
+    return;
+  }
 
   if (drag.type === 'translate') {
     const [fx1, fy1] = pixelToFont(drag.startX, drag.startY);
@@ -426,6 +710,89 @@ overlay.addEventListener('mousemove', e => {
 overlay.addEventListener('mouseup', () => { drag = null; });
 overlay.addEventListener('mouseleave', () => { drag = null; });
 
+// Double-click on a centerline curve adds a node (subdivides that segment).
+// Shift+double-click on an anchor removes that node (merges two segments
+// into one, keeping the path roughly continuous).
+overlay.addEventListener('dblclick', e => {
+  if (e.button !== 0 || selectedLayer < 0) return;
+  const g = getCurrentGlyph();
+  if (!g) return;
+  const layer = g.layers[selectedLayer + 1];
+  const cl = getCenterlineForLayer(layer.name);
+  if (!cl) return;
+  const rect = overlay.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // Shift+dblclick on an anchor removes it.
+  if (e.shiftKey) {
+    for (let i = 0; i < cl.segments.length - 1; i++) {
+      const pt = cl.segments[i].p3;
+      const [ax, ay] = fontToPixel(pt[0], pt[1]);
+      if (Math.abs(mx - ax) <= 8 && Math.abs(my - ay) <= 8) {
+        // Merge segments[i] and segments[i+1]: drop segments[i].p3 and use
+        // segments[i+1].{p1,p2,p3} as the merged segment's p1, p2, p3 of
+        // the new segment that starts at segments[i].p0 (= prev segment's p3).
+        // Easiest correct merge: reuse segments[i+1] but with segments[i]'s
+        // p1 as the new control. Best fit would re-fit, but a quick splice
+        // keeps things simple.
+        const merged = {
+          p1: cl.segments[i].p1,
+          p2: cl.segments[i + 1].p2,
+          p3: cl.segments[i + 1].p3,
+        };
+        cl.segments.splice(i, 2, merged);
+        centerlinesEdited = true;
+        modified.add(currentChar);
+        updateButtonStyles();
+        render();
+        updateStrokeInfo();
+        return;
+      }
+    }
+    return;
+  }
+
+  // Otherwise: subdivide the segment whose curve is closest to the click.
+  // Find segment + t with smallest distance to (mx, my) by sampling.
+  let bestI = -1, bestT = 0, bestD = 16;  // px tolerance
+  let prev = cl.p0;
+  for (let i = 0; i < cl.segments.length; i++) {
+    const seg = cl.segments[i];
+    for (let k = 1; k < 60; k++) {
+      const t = k / 60;
+      const u = 1 - t;
+      const x = u*u*u*prev[0] + 3*u*u*t*seg.p1[0] + 3*u*t*t*seg.p2[0] + t*t*t*seg.p3[0];
+      const y = u*u*u*prev[1] + 3*u*u*t*seg.p1[1] + 3*u*t*t*seg.p2[1] + t*t*t*seg.p3[1];
+      const [px, py] = fontToPixel(x, y);
+      const d = Math.hypot(mx - px, my - py);
+      if (d < bestD) { bestD = d; bestI = i; bestT = t; }
+    }
+    prev = seg.p3;
+  }
+  if (bestI < 0) return;
+
+  // De Casteljau split at bestT.
+  const seg = cl.segments[bestI];
+  const p0 = bestI === 0 ? cl.p0 : cl.segments[bestI - 1].p3;
+  const t = bestT, u = 1 - t;
+  const Q0 = [u*p0[0] + t*seg.p1[0], u*p0[1] + t*seg.p1[1]];
+  const Q1 = [u*seg.p1[0] + t*seg.p2[0], u*seg.p1[1] + t*seg.p2[1]];
+  const Q2 = [u*seg.p2[0] + t*seg.p3[0], u*seg.p2[1] + t*seg.p3[1]];
+  const R0 = [u*Q0[0] + t*Q1[0], u*Q0[1] + t*Q1[1]];
+  const R1 = [u*Q1[0] + t*Q2[0], u*Q1[1] + t*Q2[1]];
+  const S  = [u*R0[0] + t*R1[0], u*R0[1] + t*R1[1]];
+  cl.segments.splice(bestI, 1,
+    { p1: Q0, p2: R0, p3: S },
+    { p1: R1, p2: Q2, p3: seg.p3 }
+  );
+  centerlinesEdited = true;
+  modified.add(currentChar);
+  updateButtonStyles();
+  render();
+  updateStrokeInfo();
+});
+
 // Scale
 document.getElementById('scale').addEventListener('input', e => {
   scale = parseFloat(e.target.value);
@@ -433,34 +800,57 @@ document.getElementById('scale').addEventListener('input', e => {
   render();
 });
 
-// Save
-document.getElementById('save-btn').addEventListener('click', async () => {
-  const transforms = {};
-  for (const [ch, g] of Object.entries(fontData.glyphs)) {
-    const layerTransforms = {};
-    for (let i = 1; i < g.layers.length; i++) {
-      const l = g.layers[i];
-      const tf = l.transform || {};
-      if (tf.dx || tf.dy || tf.rot) {
-        layerTransforms[l.name] = { dx: tf.dx||0, dy: tf.dy||0, rot: tf.rot||0 };
-      }
-    }
-    if (Object.keys(layerTransforms).length > 0) {
-      transforms[ch] = layerTransforms;
-    }
+// Stroke width input — applies globally; live-update preview while typing.
+document.getElementById('font-width').addEventListener('input', e => {
+  if (!centerlines) return;
+  const v = parseInt(e.target.value, 10);
+  if (Number.isFinite(v) && v > 0) {
+    centerlines.fontWidth = v;
+    centerlinesEdited = true;
+    render();
   }
+});
+
+// Save: collect any non-zero translate/rotate transforms (mostly numbers)
+// and POST them first; then if centerlines were edited, POST those (which
+// reads the just-saved TTF, regenerates arrow contours, saves again).
+// Doing transforms first ensures number-glyph edits aren't clobbered.
+document.getElementById('save-btn').addEventListener('click', async () => {
   document.getElementById('status').textContent = 'Saving...';
   try {
-    const res = await fetch('/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(transforms),
-    });
-    if (!res.ok) throw new Error(await res.text());
+    const transforms = {};
+    for (const [ch, g] of Object.entries(fontData.glyphs)) {
+      const layerTransforms = {};
+      for (let i = 1; i < g.layers.length; i++) {
+        const l = g.layers[i];
+        const tf = l.transform || {};
+        if (tf.dx || tf.dy || tf.rot) {
+          layerTransforms[l.name] = { dx: tf.dx||0, dy: tf.dy||0, rot: tf.rot||0 };
+        }
+      }
+      if (Object.keys(layerTransforms).length > 0) {
+        transforms[ch] = layerTransforms;
+      }
+    }
+    if (Object.keys(transforms).length > 0) {
+      const res = await fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(transforms),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    }
+    if (centerlinesEdited) {
+      const res = await fetch('/centerlines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(centerlines),
+      });
+      if (!res.ok) throw new Error(await res.text());
+    }
     document.getElementById('status').textContent = 'Saved. Reloading font...';
     modified.clear();
     updateButtonStyles();
-    // Reload font
     await loadFont();
     document.getElementById('status').textContent = 'Done.';
   } catch (e) {
