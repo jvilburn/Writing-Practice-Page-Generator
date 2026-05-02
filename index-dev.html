@@ -210,6 +210,20 @@
     #printBtn:hover {
       background: #1d4ed8;
     }
+    #stats {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #e5e7eb;
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: center;
+      line-height: 1.6;
+    }
+    #stats .stat-num {
+      font-variant-numeric: tabular-nums;
+      color: #64748b;
+      font-weight: 600;
+    }
     #loadingMsg {
       text-align: center;
       padding: 40px;
@@ -437,6 +451,11 @@
       </div>
 
       <button id="printBtn">Print / Save PDF</button>
+
+      <div id="stats" aria-live="polite">
+        <div>Visitors: <span class="stat-num" id="visitorCount">…</span></div>
+        <div>Pages printed: <span class="stat-num" id="printCount">…</span></div>
+      </div>
     </aside>
     <main id="preview-container">
       <div id="preview" class="landscape" contenteditable="plaintext-only" spellcheck="false">
@@ -3426,7 +3445,12 @@
       $('#traceReps').addEventListener('change', renderPreview);
       $('#blankLines').addEventListener('change', renderPreview);
       $('#strokeGuide').addEventListener('change', renderPreview);
-      $('#printBtn').addEventListener('click', () => window.print());
+      $('#printBtn').addEventListener('click', () => {
+        bumpStat('prints').then(v => {
+          if (v != null) $('#printCount').textContent = v.toLocaleString();
+        });
+        window.print();
+      });
 
       // Font-at-caret segmented control. Prevent the button from stealing
       // focus on mousedown so the editable line keeps the caret and any
@@ -3453,6 +3477,48 @@
         });
       });
     }
+
+    // ---- Visit / print counters (hosted by abacus.jasoncameron.dev) ----
+    // Free, no-signup hit counter. Two keys live under one namespace.
+    // Note: client-side counters are best-effort, not authoritative — anyone
+    // can hit the URLs directly. Good enough for a fun stats display.
+    const STATS_NS = 'writing-practice-page-generator';
+    const STATS_BASE = 'https://abacus.jasoncameron.dev';
+    const VISIT_FLAG = 'wppg_visited_v1';
+
+    async function statRequest(action, key) {
+      try {
+        const r = await fetch(`${STATS_BASE}/${action}/${STATS_NS}/${key}`,
+                              { cache: 'no-store' });
+        if (!r.ok) return null;
+        const d = await r.json();
+        return typeof d.value === 'number' ? d.value : null;
+      } catch (_) { return null; }
+    }
+    const bumpStat = (key) => statRequest('hit', key);
+    const getStat  = (key) => statRequest('get', key);
+
+    async function initStats() {
+      const alreadyVisited = (() => {
+        try { return localStorage.getItem(VISIT_FLAG) === '1'; }
+        catch (_) { return false; }
+      })();
+      const visitorPromise = alreadyVisited ? getStat('visitors')
+                                             : bumpStat('visitors');
+      const [visitors, prints] = await Promise.all([
+        visitorPromise, getStat('prints')
+      ]);
+      if (visitors != null) {
+        $('#visitorCount').textContent = visitors.toLocaleString();
+        if (!alreadyVisited) {
+          try { localStorage.setItem(VISIT_FLAG, '1'); } catch (_) {}
+        }
+      }
+      if (prints != null) {
+        $('#printCount').textContent = prints.toLocaleString();
+      }
+    }
+    initStats();
 
     // Initialize after all fonts (including cursive) are loaded
     wireControls();
