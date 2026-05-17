@@ -211,13 +211,13 @@
       background: #1d4ed8;
     }
     #stats {
-      margin-top: 12px;
-      padding-top: 10px;
+      margin-top: 10px;
+      padding-top: 8px;
       border-top: 1px solid #e5e7eb;
-      font-size: 11px;
+      font-size: 10px;
       color: #94a3b8;
       text-align: center;
-      line-height: 1.6;
+      line-height: 1.4;
     }
     #stats .stat-num {
       font-variant-numeric: tabular-nums;
@@ -230,6 +230,106 @@
       color: #999;
       font-style: italic;
     }
+    #feedbackPrompt {
+      margin: 16px 0 8px;
+      padding: 8px 10px;
+      background: #fef3c7;
+      border-left: 3px solid #f59e0b;
+      border-radius: 3px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #78350f;
+      line-height: 1.35;
+    }
+    #feedbackBtn {
+      width: 100%;
+      padding: 9px;
+      background: #d97706;
+      color: #fff;
+      border: 1px solid #b45309;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #feedbackBtn:hover { background: #b45309; }
+    #feedbackModal[hidden] { display: none; }
+    #feedbackModal {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .feedback-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+    }
+    .feedback-card {
+      position: relative;
+      background: #fff;
+      border-radius: 6px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.2);
+      padding: 18px 20px;
+      width: min(420px, 92vw);
+      font-size: 14px;
+    }
+    .feedback-card h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+    .feedback-card label {
+      display: block;
+      margin-bottom: 10px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .feedback-card textarea,
+    .feedback-card input[type="email"] {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 4px;
+      padding: 6px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      font: inherit;
+    }
+    .feedback-card textarea { resize: vertical; }
+    .feedback-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .feedback-actions button {
+      padding: 8px 14px;
+      border-radius: 6px;
+      font: inherit;
+      cursor: pointer;
+    }
+    #feedbackCancel {
+      background: #fff;
+      color: #334155;
+      border: 1px solid #cbd5e1;
+    }
+    #feedbackSubmit {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      font-weight: 600;
+    }
+    #feedbackSubmit:hover { background: #1d4ed8; }
+    #feedbackSubmit[disabled] { opacity: 0.6; cursor: default; }
+    #feedbackStatus {
+      margin: 10px 0 0;
+      min-height: 1.2em;
+      font-size: 13px;
+      color: #475569;
+    }
+    #feedbackStatus.error { color: #b91c1c; }
+    #feedbackStatus.success { color: #15803d; }
 
     /* Responsive: stack panels on narrow screens */
     @media screen and (max-width: 900px) {
@@ -452,9 +552,11 @@
 
       <button id="printBtn">Print / Save PDF</button>
 
+      <p id="feedbackPrompt">Found a bug or have an idea? I'd love to hear it.</p>
+      <button id="feedbackBtn" type="button">Send feedback</button>
+
       <div id="stats" aria-live="polite">
-        <div>Visitors: <span class="stat-num" id="visitorCount">…</span></div>
-        <div>Pages printed: <span class="stat-num" id="printCount">…</span></div>
+        Visitors: <span class="stat-num" id="visitorCount">…</span> · Pages printed: <span class="stat-num" id="printCount">…</span>
       </div>
     </aside>
     <main id="preview-container">
@@ -464,6 +566,29 @@
     </main>
   </div>
   <div id="practiceMenu" class="menu-popover" role="menu" aria-hidden="true"></div>
+
+  <div id="feedbackModal" role="dialog" aria-labelledby="feedbackTitle" aria-modal="true" hidden>
+    <div class="feedback-backdrop"></div>
+    <div class="feedback-card">
+      <h2 id="feedbackTitle">Send feedback</h2>
+      <form id="feedbackForm" action="https://formspree.io/f/xeedqjea" method="POST">
+        <label>Message
+          <textarea name="message" rows="6" required></textarea>
+        </label>
+        <label>Email (optional)
+          <input type="email" name="email" placeholder="so I can follow up">
+        </label>
+        <input type="hidden" name="_subject" value="ReadingClass feedback">
+        <input type="text" name="_gotcha" style="display:none" tabindex="-1" autocomplete="off">
+        <div class="feedback-actions">
+          <button type="button" id="feedbackCancel">Cancel</button>
+          <button type="submit" id="feedbackSubmit">Send</button>
+        </div>
+        <p id="feedbackStatus" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+
   <script>
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => document.querySelectorAll(sel);
@@ -3562,6 +3687,70 @@
       alert(err.message + '\n\nCheck browser devtools Network tab for the failing .woff2 file.');
       console.error(err);
     });
+
+    // Feedback modal
+    (() => {
+      const modal = document.getElementById('feedbackModal');
+      const openBtn = document.getElementById('feedbackBtn');
+      const cancelBtn = document.getElementById('feedbackCancel');
+      const submitBtn = document.getElementById('feedbackSubmit');
+      const form = document.getElementById('feedbackForm');
+      const status = document.getElementById('feedbackStatus');
+      const backdrop = modal.querySelector('.feedback-backdrop');
+      const textarea = form.querySelector('textarea[name="message"]');
+      let closeTimer = null;
+
+      function open() {
+        status.textContent = '';
+        status.className = '';
+        modal.hidden = false;
+        setTimeout(() => textarea.focus(), 0);
+      }
+      function close() {
+        modal.hidden = true;
+        form.reset();
+        status.textContent = '';
+        status.className = '';
+        submitBtn.disabled = false;
+        if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+      }
+
+      openBtn.addEventListener('click', open);
+      cancelBtn.addEventListener('click', close);
+      backdrop.addEventListener('click', close);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) close();
+      });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        submitBtn.disabled = true;
+        status.className = '';
+        status.textContent = 'Sending…';
+        try {
+          const res = await fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'Accept': 'application/json' },
+          });
+          if (res.ok) {
+            status.className = 'success';
+            status.textContent = 'Thanks — feedback sent.';
+            closeTimer = setTimeout(close, 1500);
+          } else {
+            const data = await res.json().catch(() => ({}));
+            status.className = 'error';
+            status.textContent = (data.errors && data.errors[0] && data.errors[0].message)
+              || "Couldn't send. Please try again.";
+            submitBtn.disabled = false;
+          }
+        } catch {
+          status.className = 'error';
+          status.textContent = "Couldn't send. Check your connection and try again.";
+          submitBtn.disabled = false;
+        }
+      });
+    })();
   </script>
 </body>
 </html>
